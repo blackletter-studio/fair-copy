@@ -82,6 +82,11 @@ export interface DocumentAdapter {
   removeImage(ref: RangeRef): void;
   removeComments(): void;
   stripHyperlinkFormatting(ref: RangeRef): void;
+  setListStyle(
+    ref: RangeRef,
+    style: { type: "bullet" | "number"; markerStyle?: "simple"; level?: number } | null,
+  ): void;
+  setTableBorders(ref: RangeRef, borders: { style: "none" | "hairline" } | null): void;
   commit(): Promise<void>;
 }
 

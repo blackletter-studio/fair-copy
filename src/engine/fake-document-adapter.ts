@@ -17,7 +17,9 @@ export interface FakeMutation {
     | "rejectTrackedChange"
     | "removeImage"
     | "removeComments"
-    | "stripHyperlinkFormatting";
+    | "stripHyperlinkFormatting"
+    | "setListStyle"
+    | "setTableBorders";
   ref?: RangeRef;
   payload?: unknown;
 }
@@ -68,6 +70,15 @@ export class FakeDocumentAdapter implements DocumentAdapter {
   }
   stripHyperlinkFormatting(ref: RangeRef): void {
     this.mutations.push({ op: "stripHyperlinkFormatting", ref });
+  }
+  setListStyle(
+    ref: RangeRef,
+    style: { type: "bullet" | "number"; markerStyle?: "simple"; level?: number } | null,
+  ): void {
+    this.mutations.push({ op: "setListStyle", ref, payload: style });
+  }
+  setTableBorders(ref: RangeRef, borders: { style: "none" | "hairline" } | null): void {
+    this.mutations.push({ op: "setTableBorders", ref, payload: borders });
   }
 
   commit(): Promise<void> {
