@@ -192,7 +192,10 @@ export class WordDocumentAdapter implements DocumentAdapter {
       if (format.fontSize !== undefined) font.size = format.fontSize;
       if (format.fontColor !== undefined) font.color = format.fontColor;
       if (format.highlight !== undefined) {
-        font.highlightColor = format.highlight === null ? "NoColor" : format.highlight;
+        // Clearing highlight: Word for Mac rejects "NoColor" with InvalidArgument
+        // (works on Windows). Empty string is the cross-platform clear sentinel
+        // per the Office.js docs. Non-null passes the color string through.
+        font.highlightColor = format.highlight === null ? "" : format.highlight;
       }
       if (format.bold !== undefined) font.bold = format.bold;
       if (format.italic !== undefined) font.italic = format.italic;
