@@ -171,10 +171,12 @@ describe("ProofmarkPanel — tabbed UI", () => {
   });
 
   it("Spelling tab shows only spelling findings", async () => {
-    // Seed a misspelling so the Spelling bucket is non-empty.
+    // Detection is owned by Word's proofing errors now; seed a single-word
+    // error so the Spelling bucket is non-empty.
     const adapter = new FakeDocumentAdapter([
       FakeDocumentAdapter.makeParagraph("para-0", "The wittnes testified."),
     ]);
+    adapter.setProofingErrors([{ paragraphIndex: 0, text: "wittnes", offset: 4, length: 7 }]);
     renderWithTheme(<ProofmarkPanel getDocument={() => adapter} />);
     fireEvent.click(screen.getByRole("button", { name: /proofread/i }));
     await waitFor(() => {
@@ -209,8 +211,8 @@ describe("ProofmarkPanel — tabbed UI", () => {
     const adapter = new FakeDocumentAdapter([
       FakeDocumentAdapter.makeParagraph("para-0", "They went there their car was parked."),
     ]);
-    // Stub Word proofing error for "there" — valid word, so grammar owns it.
-    adapter.setProofingErrors([{ paragraphIndex: 0, text: "there", offset: 10, length: 5 }]);
+    // Multi-word proofing error — under the new classifier it's grammar.
+    adapter.setProofingErrors([{ paragraphIndex: 0, text: "there their", offset: 10, length: 11 }]);
     renderWithTheme(<ProofmarkPanel getDocument={() => adapter} />);
     fireEvent.click(screen.getByRole("button", { name: /proofread/i }));
     await waitFor(() => {

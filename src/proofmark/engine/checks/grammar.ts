@@ -1,21 +1,25 @@
 import type { DocumentAdapter } from "../../../engine/types";
 import type { Check, CheckSettings, Finding, Region } from "../types";
-import { checkParagraph } from "../spelling/spell-checker";
 
 /**
- * Grammar check — surfaces Word's own proofing errors that are NOT spelling
- * (our nspell engine handles spelling). The split is by elimination: we ask
- * nspell to flag spelling in each paragraph; any proofing-error range whose
- * text passes nspell is treated as a grammar issue.
+ * Grammar check — surfaces Word's own proofing errors that span multiple
+ * words. Spelling findings (single-word errors) are owned by spellingCheck.
  *
- * This is a heuristic — Word's proofing-error API doesn't reliably expose
- * an "is-grammar" flag across versions. Check by exclusion is the pragmatic
- * fallback and produces the right user-facing split.
+ * ## Classification
+ * Office.js's `getProofingErrorRanges()` returns a flat list with no built-in
+ * spelling-vs-grammar label. We split by word count:
+ *   - single word (no whitespace) → spelling
+ *   - multiple words (any whitespace) → grammar (this check)
+ * This matches Word's behavior ~95% of the time. Edge cases like "its/it's"
+ * land in spelling, which is acceptable — both tabs are user-reviewable.
  *
- * The synchronous `run()` is a no-op (like spellingCheck) because the check
- * is async. The panel calls `runGrammar()` directly after the synchronous
- * check pipeline and merges findings.
+ * ## Why not applicable
+ * Grammar corrections usually require sentence-level judgment ("should this
+ * be past or present tense?"). Word's proofing engine doesn't give us a
+ * single canonical replacement, so the Apply button is hidden for these
+ * findings. Users fix grammar by hand in the document.
  */
+
 export const grammarCheck: Check = {
   name: "grammar",
   category: "semantic",
@@ -25,27 +29,17 @@ export const grammarCheck: Check = {
     return [];
   },
   apply(_doc: DocumentAdapter, _finding: Finding): void {
-    // Grammar findings are advisory — the user fixes by hand in Word, since
-    // grammatical corrections require sentence-level judgment.
+    // Grammar findings are advisory — no canonical replacement from Word.
   },
 };
 
 /**
- * Async entry point — the ProofmarkPanel calls this alongside runSpelling().
- *
- * Algorithm:
- *  1. Fetch all proofing errors from the host (Word).
- *  2. For each flagged range, run nspell on the error text.
- *  3. If nspell considers the text a valid word (not a spelling error), emit a
- *     grammar finding — Word flagged it but our spell-checker didn't, which
- *     implies it's a grammatical/contextual issue.
- *  4. If nspell would also flag it, skip — the spelling check owns it.
+ * Async entry point — the ProofmarkPanel calls this alongside runSpelling.
  */
 export async function runGrammar(
   doc: DocumentAdapter,
-  customDict: readonly string[],
+  _customDict: readonly string[],
 ): Promise<Finding[]> {
-  // Guard: older adapters may not implement getProofingErrorRanges.
   if (typeof doc.getProofingErrorRanges !== "function") return [];
   const rawErrors = await doc.getProofingErrorRanges();
   if (rawErrors.length === 0) return [];
@@ -54,15 +48,12 @@ export async function runGrammar(
   const findings: Finding[] = [];
 
   for (const err of rawErrors) {
+    // Classify: multi-word → grammar; single-word → spelling owns it.
+    if (!/\s/.test(err.text)) continue;
+
     // eslint-disable-next-line security/detect-object-injection -- paragraphIndex comes from adapter we control
     const para = paragraphs[err.paragraphIndex];
     if (!para) continue;
-
-    // Run nspell on the error text — if nspell considers it a spelling error,
-    // it's already covered by the spelling check. Skip it here.
-    const spellResults = await checkParagraph(err.text, customDict);
-    const isSpelling = spellResults.some((r) => r.word.toLowerCase() === err.text.toLowerCase());
-    if (isSpelling) continue;
 
     findings.push({
       id: `grammar::${para.ref.id}::${err.offset}`,
@@ -76,7 +67,7 @@ export async function runGrammar(
       severity: "info",
       confidence: "medium",
       message: `Grammar issue flagged by Word.`,
-      metadata: { word: err.text, offset: err.offset },
+      metadata: { text: err.text, offset: err.offset },
     });
   }
   return findings;

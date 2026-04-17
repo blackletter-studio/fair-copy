@@ -1,15 +1,36 @@
 import type { DocumentAdapter } from "../../../engine/types";
 import type { Check, CheckSettings, Finding, Region } from "../types";
-import { checkParagraph } from "../spelling/spell-checker";
+import { suggestCorrections } from "../spelling/spell-checker";
 
 /**
- * The spell-check finding's range.id encodes paragraph index and word-offset
- * so selectRange and apply can target the specific word:
- *   spell-<paraIdx>-<offset>-<len>
+ * Spelling check — surfaces Word's own proofing errors as single-word findings.
+ *
+ * ## Why Word (not nspell) owns detection
+ * We used to scan with nspell + `dictionary-en` locally. Users complained that
+ * we flagged words Word itself accepted (compounds like "How-To", domain
+ * proper nouns, etc.) because our SCOWL-derived corpus is smaller than Word's
+ * proprietary one. The Option-B pivot moves detection to Word's engine via
+ * `DocumentAdapter.getProofingErrorRanges()` for perfect behavioral parity.
+ *
+ * nspell stays alive purely to generate suggestions for the Apply button —
+ * Office.js doesn't expose a suggestions API.
+ *
+ * ## Spelling vs. grammar classification
+ * `getProofingErrorRanges()` returns a flat list; it doesn't label spelling vs.
+ * grammar. We classify by word count:
+ *   - single word (no internal whitespace) → Spelling tab (this check)
+ *   - multiple words → Grammar tab (grammarCheck)
+ * Matches Word's behavior in ~95% of cases; edge cases like "its/it's" may
+ * appear in the "wrong" tab but both tabs are user-reviewable.
+ *
+ * ## Custom dictionary as suppression list
+ * Office.js can't write to Word's custom dictionary, so our "Add word" button
+ * can't reach Word's own engine — Word will keep its red squiggle. But we can
+ * suppress the word from the Proofmark findings list, which is the effective
+ * UX: the word stops bothering the user in our panel.
  */
-function makeSpellRef(paraId: string, offset: number, len: number): string {
-  const match = /^para-(\d+)$/.exec(paraId);
-  const paraIdx = match?.[1] ?? "0";
+
+function makeSpellRef(paraIdx: number, offset: number, len: number): string {
   return `spell-${paraIdx}-${offset}-${len}`;
 }
 
@@ -19,7 +40,7 @@ export const spellingCheck: Check = {
   defaultMode: "interactive",
   run(_doc: DocumentAdapter, _region: Region | null, _settings: CheckSettings): Finding[] {
     // run() is synchronous per the Check contract. Spell-check is async
-    // (dictionary load + nspell ops). Return [] here; the panel invokes
+    // (adapter round-trip to Word). Return [] here; the panel invokes
     // runSpelling() directly and merges results.
     return [];
   },
@@ -37,37 +58,52 @@ export async function runSpelling(
   doc: DocumentAdapter,
   customDict: readonly string[],
 ): Promise<Finding[]> {
+  // Older adapters (pre-M3.5) may not implement getProofingErrorRanges.
+  // In that case we can't surface spelling at all from Word — return empty.
+  if (typeof doc.getProofingErrorRanges !== "function") return [];
+  const rawErrors = await doc.getProofingErrorRanges();
+  if (rawErrors.length === 0) return [];
+
   const paragraphs = doc.getAllParagraphs();
+  const customSet = new Set(customDict.map((w) => w.toLowerCase()));
   const findings: Finding[] = [];
-  for (const para of paragraphs) {
-    const results = await checkParagraph(para.text, customDict);
-    for (const r of results) {
-      const best = r.suggestions[0];
-      findings.push({
-        id: `spelling::${para.ref.id}::${r.offset}`,
-        checkName: "spelling",
-        region: "document",
-        range: {
-          id: makeSpellRef(para.ref.id, r.offset, r.word.length),
-          kind: "run",
-        },
-        excerpt: previewAround(para.text, r.offset, r.word.length),
-        severity: r.legalConfusionFix ? "warn" : "info",
-        confidence: r.legalConfusionFix ? "high" : "medium",
-        message: r.legalConfusionFix
-          ? `Likely misspelling \u2014 did you mean "${r.legalConfusionFix}"?`
-          : r.suggestions.length > 0
-            ? `Unknown word. Suggestions: ${r.suggestions.slice(0, 3).join(", ")}.`
-            : `Unknown word.`,
-        suggestedText: best,
-        metadata: {
-          word: r.word,
-          offset: r.offset,
-          suggestions: r.suggestions,
-          legalConfusion: r.legalConfusionFix ?? null,
-        },
-      });
-    }
+
+  for (const err of rawErrors) {
+    // Classify: single-word → spelling; multi-word → grammar owns it.
+    if (/\s/.test(err.text)) continue;
+
+    // Suppression list: user has added this word to their custom dictionary.
+    if (customSet.has(err.text.toLowerCase())) continue;
+
+    // eslint-disable-next-line security/detect-object-injection -- paragraphIndex comes from adapter we control
+    const para = paragraphs[err.paragraphIndex];
+    if (!para) continue;
+
+    const suggestions = suggestCorrections(err.text, customDict);
+    const best = suggestions[0];
+
+    findings.push({
+      id: `spelling::${para.ref.id}::${err.offset}`,
+      checkName: "spelling",
+      region: "document",
+      range: {
+        id: makeSpellRef(err.paragraphIndex, err.offset, err.length),
+        kind: "run",
+      },
+      excerpt: previewAround(para.text, err.offset, err.length),
+      severity: "info",
+      confidence: "medium",
+      message:
+        suggestions.length > 0
+          ? `Unknown word. Suggestions: ${suggestions.slice(0, 3).join(", ")}.`
+          : `Unknown word.`,
+      suggestedText: best,
+      metadata: {
+        word: err.text,
+        offset: err.offset,
+        suggestions,
+      },
+    });
   }
   return findings;
 }

@@ -24,9 +24,11 @@ import { tenseConsistencyCheck } from "../engine/checks/tense-consistency";
 import { orphanHeadingCheck } from "../engine/checks/orphan-heading";
 import { spellingCheck, runSpelling } from "../engine/checks/spelling";
 import { grammarCheck, runGrammar } from "../engine/checks/grammar";
+import { legalUsageCheck } from "../engine/checks/legal-usage";
 import { RegionBar } from "./RegionBar";
 import { FindingsList } from "./FindingsList";
 import { EmptyState } from "./EmptyState";
+import { CustomWordsManager } from "./CustomWordsManager";
 
 const ALL_CHECKS: Check[] = [
   straightQuotesCheck,
@@ -43,6 +45,7 @@ const ALL_CHECKS: Check[] = [
   orphanHeadingCheck,
   spellingCheck,
   grammarCheck,
+  legalUsageCheck,
 ];
 
 type ProofmarkTab = "spelling" | "grammar" | "style";
@@ -91,6 +94,12 @@ export function ProofmarkPanel({
   const [appliedIds, setAppliedIds] = useState<Set<string>>(new Set());
   const [scanState, setScanState] = useState<ScanState>("idle");
   const [activeTab, setActiveTab] = useState<ProofmarkTab>("spelling");
+  // Mirror the persisted custom dictionary in React state so the manager UI
+  // re-renders immediately on add/remove. The settings store is the source of
+  // truth on disk; this state is the source of truth for UI rendering.
+  const [customWords, setCustomWords] = useState<string[]>(
+    () => settingsStore?.get<string[]>("proofmark-custom-dict") ?? [],
+  );
 
   const handleProofread = useCallback(async () => {
     setScanState("scanning");
@@ -103,15 +112,14 @@ export function ProofmarkPanel({
     // wired-in check with no overrides, which is what users expect from a
     // single Proofread button.
     const checkFindings = runChecks(doc, ALL_CHECKS, detected, PROOFMARK_PRESETS.standard);
-    const customDict = settingsStore?.get<string[]>("proofmark-custom-dict") ?? [];
-    const spellingFindings = await runSpelling(doc, customDict);
-    const grammarFindings = await runGrammar(doc, customDict);
+    const spellingFindings = await runSpelling(doc, customWords);
+    const grammarFindings = await runGrammar(doc, customWords);
     const allFindings = [...checkFindings, ...spellingFindings, ...grammarFindings];
     setAppliedIds(new Set());
     setFindings(allFindings);
     setActiveTab("spelling");
     setScanState("done");
-  }, [getDocument, settingsStore]);
+  }, [getDocument, customWords]);
 
   const handleApplyAll = useCallback(async () => {
     const doc = getDocument();
@@ -187,15 +195,30 @@ export function ProofmarkPanel({
     (finding: Finding) => {
       const word = (finding.metadata as { word?: string } | undefined)?.word;
       if (!word || !settingsStore) return;
-      const current = settingsStore.get<string[]>("proofmark-custom-dict") ?? [];
-      if (current.includes(word)) return;
-      const next = [...current, word];
+      if (customWords.includes(word)) return;
+      const next = [...customWords, word];
+      setCustomWords(next);
       settingsStore.set("proofmark-custom-dict", next);
       void settingsStore.saveAsync();
-      // Remove the finding from the list immediately — the word is now valid.
+      // Also clear the finding from the current list — the word is now
+      // suppressed, so it shouldn't keep showing up on this scan.
       setFindings((prev) => prev.filter((f) => f.id !== finding.id));
     },
-    [settingsStore],
+    [customWords, settingsStore],
+  );
+
+  const handleRemoveFromDictionary = useCallback(
+    (word: string) => {
+      if (!settingsStore) return;
+      if (!customWords.includes(word)) return;
+      const next = customWords.filter((w) => w !== word);
+      setCustomWords(next);
+      settingsStore.set("proofmark-custom-dict", next);
+      void settingsStore.saveAsync();
+      // Note: we don't re-flag the word on the current scan. The next
+      // Proofread pass will surface it again if Word still flags it.
+    },
+    [customWords, settingsStore],
   );
 
   const handleScrollTo = useCallback(
@@ -283,6 +306,9 @@ export function ProofmarkPanel({
                   onScrollTo={handleScrollTo}
                   onAddToDictionary={settingsStore ? handleAddToDictionary : undefined}
                 />
+              )}
+              {activeTab === "spelling" && settingsStore && (
+                <CustomWordsManager words={customWords} onRemove={handleRemoveFromDictionary} />
               )}
             </>
           )}
