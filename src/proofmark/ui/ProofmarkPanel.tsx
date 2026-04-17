@@ -22,6 +22,7 @@ import { partyNameConsistencyCheck } from "../engine/checks/party-name-consisten
 import { numericVsWrittenCheck } from "../engine/checks/numeric-vs-written";
 import { tenseConsistencyCheck } from "../engine/checks/tense-consistency";
 import { orphanHeadingCheck } from "../engine/checks/orphan-heading";
+import { spellingCheck, runSpelling } from "../engine/checks/spelling";
 import { RegionBar } from "./RegionBar";
 import { FindingsList } from "./FindingsList";
 import { EmptyState } from "./EmptyState";
@@ -39,6 +40,7 @@ const ALL_CHECKS: Check[] = [
   numericVsWrittenCheck,
   tenseConsistencyCheck,
   orphanHeadingCheck,
+  spellingCheck,
 ];
 
 const useStyles = makeStyles({
@@ -62,15 +64,18 @@ export interface ProofmarkSettingsStore {
 export interface ProofmarkPanelProps {
   getDocument: () => DocumentAdapter;
   /**
-   * Kept in the signature for App.tsx compatibility even though M3 no longer
-   * persists any Proofmark state. Ignored by the current implementation.
+   * Used for persisting the custom spell-check dictionary across sessions.
+   * When provided, "Add to dictionary" is enabled on spelling findings.
    */
   settingsStore?: ProofmarkSettingsStore;
 }
 
 type ScanState = "idle" | "scanning" | "done";
 
-export function ProofmarkPanel({ getDocument }: ProofmarkPanelProps): React.JSX.Element {
+export function ProofmarkPanel({
+  getDocument,
+  settingsStore,
+}: ProofmarkPanelProps): React.JSX.Element {
   const styles = useStyles();
   const [regions, setRegions] = useState<Region[]>([]);
   const [findings, setFindings] = useState<Finding[]>([]);
@@ -87,11 +92,14 @@ export function ProofmarkPanel({ getDocument }: ProofmarkPanelProps): React.JSX.
     // of a simpler read-only model. PROOFMARK_PRESETS.standard runs every
     // wired-in check with no overrides, which is what users expect from a
     // single Proofread button.
-    const allFindings = runChecks(doc, ALL_CHECKS, detected, PROOFMARK_PRESETS.standard);
+    const checkFindings = runChecks(doc, ALL_CHECKS, detected, PROOFMARK_PRESETS.standard);
+    const customDict = settingsStore?.get<string[]>("proofmark-custom-dict") ?? [];
+    const spellingFindings = await runSpelling(doc, customDict);
+    const allFindings = [...checkFindings, ...spellingFindings];
     setAppliedIds(new Set());
     setFindings(allFindings);
     setScanState("done");
-  }, [getDocument]);
+  }, [getDocument, settingsStore]);
 
   const handleApplyAll = useCallback(async () => {
     const doc = getDocument();
@@ -163,6 +171,21 @@ export function ProofmarkPanel({ getDocument }: ProofmarkPanelProps): React.JSX.
     setFindings((prev) => prev.filter((f) => f.id !== finding.id));
   }, []);
 
+  const handleAddToDictionary = useCallback(
+    (finding: Finding) => {
+      const word = (finding.metadata as { word?: string } | undefined)?.word;
+      if (!word || !settingsStore) return;
+      const current = settingsStore.get<string[]>("proofmark-custom-dict") ?? [];
+      if (current.includes(word)) return;
+      const next = [...current, word];
+      settingsStore.set("proofmark-custom-dict", next);
+      void settingsStore.saveAsync();
+      // Remove the finding from the list immediately — the word is now valid.
+      setFindings((prev) => prev.filter((f) => f.id !== finding.id));
+    },
+    [settingsStore],
+  );
+
   const handleScrollTo = useCallback(
     (finding: Finding) => {
       const doc = getDocument();
@@ -214,6 +237,7 @@ export function ProofmarkPanel({ getDocument }: ProofmarkPanelProps): React.JSX.
             onApply={(f) => void handleApply(f)}
             onDismiss={handleDismiss}
             onScrollTo={handleScrollTo}
+            onAddToDictionary={settingsStore ? handleAddToDictionary : undefined}
           />
         </>
       )}
