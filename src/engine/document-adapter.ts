@@ -249,9 +249,36 @@ export class WordDocumentAdapter implements DocumentAdapter {
     if (paraIdxStr === undefined) return;
     const paraIdx = Number.parseInt(paraIdxStr, 10);
     // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
-    const oldText = this.loadedParagraphs[paraIdx]?.text ?? "";
+    const cachedPara = this.loadedParagraphs[paraIdx];
+    const oldText = cachedPara?.text ?? "";
+    if (oldText === "") {
+      // No cached paragraph — likely because load() was never called on this
+      // adapter instance, or a factory created a fresh adapter per call. We
+      // cannot compute a minimal diff without oldText; fall back to whole-
+      // paragraph replace. Logged so callers can fix the lifecycle bug.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `setParagraphText: no cached paragraph text for para-${paraIdx} — falling back to whole-paragraph replace. Was load() called on this adapter?`,
+      );
+      this.pendingMutations.push((ctx) => {
+        // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
+        const p = ctx.document.body.paragraphs.items[paraIdx];
+        if (!p) return;
+        p.insertText(text, Word.InsertLocation.replace);
+      });
+      return;
+    }
     if (oldText === text) return;
     const edits = minimalReplacements(oldText, text);
+    // Optimistically update the in-memory paragraph text so subsequent edits
+    // to the same paragraph diff against the post-apply state rather than the
+    // pre-apply state. If the Office.js write fails, the cache will drift
+    // from reality — but that's the same "index drift if user edits mid-batch"
+    // acceptable failure mode already documented on this class.
+    if (cachedPara) {
+      cachedPara.text = text;
+      if (cachedPara.runs[0]) cachedPara.runs[0].text = text;
+    }
     this.pendingMutations.push(async (ctx) => {
       // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
       const p = ctx.document.body.paragraphs.items[paraIdx];
@@ -493,13 +520,16 @@ export class WordDocumentAdapter implements DocumentAdapter {
       }
       await context.sync();
     });
-    // Clear caches so a subsequent load() starts fresh against the new state.
+    // Keep loadedParagraphs/images/etc warm across commits. Proofmark's usage
+    // pattern is scan-once, apply-many: the user clicks Proofread (load + scan),
+    // then clicks Apply multiple times, each of which commits. If we cleared
+    // the caches after each commit, the SECOND Apply would read empty text
+    // from loadedParagraphs[idx], breaking setParagraphText's text-diff logic.
+    // The caches may drift if the user edits the doc between commits — that's
+    // acceptable and matches the existing M2 policy (see class docs).
+    // We still clear preloadedComments because its proxy is bound to the
+    // Word.run context we just exited.
     this.preloadedComments = null;
-    this.loadedParagraphs = [];
-    this.loadedImages = [];
-    this.loadedTrackedChanges = [];
-    this.loadedHyperlinks = [];
-    this.loadedState = null;
   }
 }
 

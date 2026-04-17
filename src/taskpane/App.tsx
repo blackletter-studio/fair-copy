@@ -49,6 +49,13 @@ export interface AppProps {
 
 export function App({ createAdapter }: AppProps = {}): ReactElement {
   const settingsStore = useMemo(() => new OfficeRoamingSettingsStore(), []);
+  // Memoize the Proofmark adapter so scan → apply cycles share one instance.
+  // A factory-per-call would give Apply a fresh adapter with an empty
+  // loadedParagraphs cache, breaking setParagraphText's text-diff logic.
+  const proofmarkAdapter = useMemo(
+    () => (createAdapter ? createAdapter() : new WordDocumentAdapter()),
+    [createAdapter],
+  );
   const [activeTool, setActiveTool] = useState<ToolName>("fair-copy");
   const [themeName, setThemeName] = useState<ThemeName>("editorial");
   const [presetName, setPresetName] = useState<PresetKey>("standard");
@@ -289,10 +296,7 @@ export function App({ createAdapter }: AppProps = {}): ReactElement {
               />
             </>
           ) : (
-            <ProofmarkPanel
-              getDocument={() => (createAdapter ? createAdapter() : new WordDocumentAdapter())}
-              settingsStore={settingsStore}
-            />
+            <ProofmarkPanel getDocument={() => proofmarkAdapter} settingsStore={settingsStore} />
           )}
 
           {/* Dialog layer */}
