@@ -13,7 +13,18 @@ const SMALL_WORD_TO_DIGIT: Record<string, string> = {
   nine: "9",
 };
 
+// Inverse mapping: digit → word.
+const DIGIT_TO_WORD: Record<string, string> = Object.fromEntries(
+  Object.entries(SMALL_WORD_TO_DIGIT).map(([word, digit]) => [digit, word]),
+);
+
 const SMALL_DIGIT_PATTERN = /\b([1-9])\b/;
+const SMALL_DIGIT_GLOBAL = /\b([1-9])\b/g;
+
+/** Replace standalone digits 1-9 in the text with their written form. */
+function spellSmallDigits(text: string): string {
+  return text.replace(SMALL_DIGIT_GLOBAL, (_, d: string) => DIGIT_TO_WORD[d] ?? d);
+}
 
 export const numericVsWrittenCheck: Check = {
   name: "numeric-vs-written",
@@ -37,6 +48,7 @@ export const numericVsWrittenCheck: Check = {
     if (writtenHits.size === 0 || digitHits.length === 0) return [];
     const findings: Finding[] = [];
     for (const { paragraph, digit } of digitHits) {
+      const suggested = spellSmallDigits(paragraph.text);
       findings.push({
         id: `numeric-vs-written::${paragraph.ref.id}::${digit}`,
         checkName: "numeric-vs-written",
@@ -46,10 +58,14 @@ export const numericVsWrittenCheck: Check = {
         severity: "info",
         confidence: "low",
         message: `Small number "${digit}" appears as a digit; another paragraph uses the written form. Consider spelling numbers under 10.`,
+        suggestedText: suggested !== paragraph.text ? suggested : undefined,
         metadata: { digit },
       });
     }
     return findings;
   },
-  apply(_doc: DocumentAdapter, _finding: Finding): void {},
+  apply(doc: DocumentAdapter, finding: Finding): void {
+    if (finding.suggestedText === undefined) return;
+    doc.setParagraphText(finding.range, finding.suggestedText);
+  },
 };

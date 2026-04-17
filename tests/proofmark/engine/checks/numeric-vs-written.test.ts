@@ -25,4 +25,14 @@ describe("numeric-vs-written check", () => {
     ]);
     expect(numericVsWrittenCheck.run(adapter, null, { mode: "interactive" })).toHaveLength(0);
   });
+
+  it("produces suggestedText that spells out small digits", () => {
+    const adapter = new FakeDocumentAdapter([
+      FakeDocumentAdapter.makeParagraph("p1", "There are five defendants."),
+      FakeDocumentAdapter.makeParagraph("p2", "Only 5 responded."),
+    ]);
+    const findings = numericVsWrittenCheck.run(adapter, null, { mode: "interactive" });
+    const digitFinding = findings.find((f) => f.range.id === "p2");
+    expect(digitFinding?.suggestedText).toBe("Only five responded.");
+  });
 });
