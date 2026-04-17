@@ -52,7 +52,25 @@ export class WordDocumentAdapter implements DocumentAdapter {
   private loadedState: DocumentState | null = null;
   private pendingMutations: Array<(ctx: Word.RequestContext) => void> = [];
 
+  /**
+   * Wait for Office.js + Word host API to be ready. main.tsx already awaits
+   * Office.onReady before the first render, but vite HMR can remount App in a
+   * narrow window where the Word namespace hasn't been attached to the global
+   * yet. Re-awaiting onReady is idempotent and cheap — resolves synchronously
+   * if already ready. After it resolves, Word must be defined; otherwise the
+   * task pane is hosted outside of Word and we fail loud.
+   */
+  private async waitForWordApi(): Promise<void> {
+    await Office.onReady();
+    if (typeof Word === "undefined") {
+      throw new Error(
+        "Office.onReady resolved but Word namespace is missing — add-in may be hosted outside Word.",
+      );
+    }
+  }
+
   async load(): Promise<void> {
+    await this.waitForWordApi();
     await Word.run(async (context) => {
       const body = context.document.body;
 
@@ -347,6 +365,7 @@ export class WordDocumentAdapter implements DocumentAdapter {
 
   async commit(): Promise<void> {
     if (this.pendingMutations.length === 0) return;
+    await this.waitForWordApi();
     const mutations = this.pendingMutations;
     this.pendingMutations = [];
     await Word.run(async (context) => {
