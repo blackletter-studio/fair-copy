@@ -47,6 +47,8 @@ export interface FindingCardProps {
   onApply: (finding: Finding) => void;
   onDismiss: (finding: Finding) => void;
   onScrollTo: (finding: Finding) => void;
+  /** When provided and finding.checkName === "spelling", renders an "Add to dictionary" button. */
+  onAddToDictionary?: (finding: Finding) => void;
 }
 
 export function FindingCard({
@@ -55,6 +57,7 @@ export function FindingCard({
   onApply,
   onDismiss,
   onScrollTo,
+  onAddToDictionary,
 }: FindingCardProps): React.JSX.Element {
   const styles = useStyles();
   return (
@@ -78,6 +81,11 @@ export function FindingCard({
           {finding.suggestedText !== undefined && (
             <Button appearance="primary" onClick={() => onApply(finding)}>
               Apply
+            </Button>
+          )}
+          {finding.checkName === "spelling" && onAddToDictionary !== undefined && (
+            <Button appearance="subtle" onClick={() => onAddToDictionary(finding)}>
+              Add to dictionary
             </Button>
           )}
           <Button appearance="subtle" onClick={() => onDismiss(finding)}>

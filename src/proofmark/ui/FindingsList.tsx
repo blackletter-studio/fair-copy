@@ -28,6 +28,7 @@ export interface FindingsListProps {
   onApply: (finding: Finding) => void;
   onDismiss: (finding: Finding) => void;
   onScrollTo: (finding: Finding) => void;
+  onAddToDictionary?: (finding: Finding) => void;
 }
 
 export function FindingsList({
@@ -36,6 +37,7 @@ export function FindingsList({
   onApply,
   onDismiss,
   onScrollTo,
+  onAddToDictionary,
 }: FindingsListProps): React.JSX.Element {
   const styles = useStyles();
   const totalCount = findings.length;
@@ -62,6 +64,7 @@ export function FindingsList({
               onApply={onApply}
               onDismiss={onDismiss}
               onScrollTo={onScrollTo}
+              onAddToDictionary={onAddToDictionary}
             />
           ))}
         </section>
