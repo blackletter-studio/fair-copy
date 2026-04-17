@@ -396,6 +396,20 @@ export class WordDocumentAdapter implements DocumentAdapter {
     });
   }
 
+  selectRange(ref: RangeRef): void {
+    const match = /^para-(\d+)$/.exec(ref.id);
+    if (!match) return;
+    const paraIdxStr = match[1];
+    if (paraIdxStr === undefined) return;
+    const paraIdx = Number.parseInt(paraIdxStr, 10);
+    this.pendingMutations.push((ctx) => {
+      // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
+      const p = ctx.document.body.paragraphs.items[paraIdx];
+      if (!p) return;
+      p.select();
+    });
+  }
+
   async commit(): Promise<void> {
     if (this.pendingMutations.length === 0) return;
     await this.waitForWordApi();

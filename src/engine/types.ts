@@ -122,6 +122,8 @@ export interface DocumentAdapter {
   ): void;
   setTableBorders(ref: RangeRef, borders: { style: "none" | "hairline" } | null): void;
   removeSectionBreaks(): void;
+  /** Scroll the document view to the paragraph identified by ref and select it. */
+  selectRange(ref: RangeRef): void;
   commit(): Promise<void>;
 }
 

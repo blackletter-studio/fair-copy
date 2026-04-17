@@ -23,7 +23,8 @@ export interface FakeMutation {
     | "stripHyperlinkFormatting"
     | "setListStyle"
     | "setTableBorders"
-    | "removeSectionBreaks";
+    | "removeSectionBreaks"
+    | "selectRange";
   ref?: RangeRef;
   payload?: unknown;
 }
@@ -117,6 +118,10 @@ export class FakeDocumentAdapter implements DocumentAdapter {
   }
   removeSectionBreaks(): void {
     this.mutations.push({ op: "removeSectionBreaks" });
+  }
+
+  selectRange(ref: RangeRef): void {
+    this.mutations.push({ op: "selectRange", ref });
   }
 
   commit(): Promise<void> {
