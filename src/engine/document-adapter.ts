@@ -597,6 +597,88 @@ export class WordDocumentAdapter implements DocumentAdapter {
     });
   }
 
+  /**
+   * Returns all proofing errors (spelling + grammar) from Word's own engine.
+   * Each entry carries the paragraph index, the flagged text, and its character
+   * offset + length within that paragraph.
+   *
+   * Uses `Paragraph.getProofingErrors()` — available in Word Desktop 16.0.17328+
+   * and Word Online (2024+). On older builds this method may throw; the outer
+   * try/catch returns [] in that case.
+   *
+   * Not covered by unit tests (Office.js can't be mocked); exercised by the
+   * Playwright E2E suite.
+   */
+  async getProofingErrorRanges(): Promise<
+    Array<{ paragraphIndex: number; text: string; offset: number; length: number }>
+  > {
+    await this.waitForWordApi();
+    const results: Array<{ paragraphIndex: number; text: string; offset: number; length: number }> =
+      [];
+    try {
+      await Word.run(async (context) => {
+        const body = context.document.body;
+        const paragraphs = body.paragraphs;
+        paragraphs.load("items");
+        await context.sync();
+
+        // For each paragraph, load its proofing errors.
+        const perParaErrors: Array<{
+          paraIdx: number;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- getProofingErrors() may not be in older @types/office-js
+          errors: any;
+        }> = [];
+        for (let i = 0; i < paragraphs.items.length; i++) {
+          // eslint-disable-next-line security/detect-object-injection -- i is a loop counter
+          const p = paragraphs.items[i];
+          if (!p) continue;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call -- getProofingErrors not in older types
+          const errs = (p as any).getProofingErrors();
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- same
+          errs.load("items");
+          perParaErrors.push({ paraIdx: i, errors: errs });
+        }
+        await context.sync();
+
+        // Load text for each error range.
+        for (const { errors } of perParaErrors) {
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- any[]
+          for (const err of errors.items) {
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- any
+            err.load("text");
+          }
+        }
+        await context.sync();
+
+        // Build offset+length by searching paragraph text for each error text.
+        for (const { paraIdx, errors } of perParaErrors) {
+          // eslint-disable-next-line security/detect-object-injection -- loop counter
+          const p = paragraphs.items[paraIdx];
+          if (!p) continue;
+          const paraText = p.text;
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- any[]
+          for (const err of errors.items) {
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access -- any
+            const errText: string = err.text;
+            const offset = paraText.indexOf(errText);
+            if (offset === -1) continue;
+            results.push({
+              paragraphIndex: paraIdx,
+              text: errText,
+              offset,
+              length: errText.length,
+            });
+          }
+        }
+      });
+    } catch (err) {
+      // Older Office.js builds that lack getProofingErrors() will throw here.
+      // eslint-disable-next-line no-console
+      console.warn("getProofingErrorRanges: not supported in this Word version —", err);
+    }
+    return results;
+  }
+
   async commit(): Promise<void> {
     if (this.pendingMutations.length === 0) return;
     await this.waitForWordApi();

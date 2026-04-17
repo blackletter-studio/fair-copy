@@ -35,6 +35,12 @@ export class FakeDocumentAdapter implements DocumentAdapter {
   committed = false;
   hyperlinks: HyperlinkInfo[] = [];
   headingStyles: Map<string, HeadingLevel> = new Map();
+  private _proofingErrors: Array<{
+    paragraphIndex: number;
+    text: string;
+    offset: number;
+    length: number;
+  }> = [];
 
   constructor(
     public paragraphs: Paragraph[] = [],
@@ -72,6 +78,22 @@ export class FakeDocumentAdapter implements DocumentAdapter {
   }
   setHyperlinks(links: HyperlinkInfo[]): void {
     this.hyperlinks = links;
+  }
+
+  /**
+   * Stub helper for tests: seed the proofing errors that
+   * `getProofingErrorRanges()` will return.
+   */
+  setProofingErrors(
+    errors: Array<{ paragraphIndex: number; text: string; offset: number; length: number }>,
+  ): void {
+    this._proofingErrors = errors;
+  }
+
+  getProofingErrorRanges(): Promise<
+    Array<{ paragraphIndex: number; text: string; offset: number; length: number }>
+  > {
+    return Promise.resolve(this._proofingErrors);
   }
   getDocumentState(): DocumentState {
     return this.state;

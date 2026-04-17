@@ -127,6 +127,18 @@ export interface DocumentAdapter {
   /** Replace text at a specific sub-paragraph range (by ref). Used by spelling. */
   replaceRange(ref: RangeRef, newText: string): void;
   commit(): Promise<void>;
+  /**
+   * Optional: return all proofing errors (spelling + grammar) from the host's
+   * own proofing engine. Each entry includes the zero-based paragraph index,
+   * flagged text, character offset within that paragraph, and the run length.
+   *
+   * Implementations backed by older Office.js builds that lack
+   * `Paragraph.getProofingErrors()` should omit this method entirely (leave it
+   * undefined) — callers guard with `typeof doc.getProofingErrorRanges !== "function"`.
+   */
+  getProofingErrorRanges?(): Promise<
+    Array<{ paragraphIndex: number; text: string; offset: number; length: number }>
+  >;
 }
 
 export type RuleName =
