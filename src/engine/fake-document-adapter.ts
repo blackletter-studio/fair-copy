@@ -9,6 +9,7 @@ import type {
   RangeRef,
   TextFormat,
   ParagraphFormat,
+  HeadingLevel,
 } from "./types";
 
 export interface FakeMutation {
@@ -30,6 +31,7 @@ export class FakeDocumentAdapter implements DocumentAdapter {
   mutations: FakeMutation[] = [];
   committed = false;
   hyperlinks: HyperlinkInfo[] = [];
+  headingStyles: Map<string, HeadingLevel> = new Map();
 
   constructor(
     public paragraphs: Paragraph[] = [],
@@ -41,7 +43,17 @@ export class FakeDocumentAdapter implements DocumentAdapter {
       hasActiveComments: false,
       commentCount: 0,
     },
-  ) {}
+  ) {
+    // Seed the heading map from any paragraphs whose factory attached a
+    // `__headingStyle` sentinel on paragraphFormat.
+    for (const p of paragraphs) {
+      const sentinel = (p.paragraphFormat as ParagraphFormat & { __headingStyle?: HeadingLevel })
+        .__headingStyle;
+      if (sentinel !== undefined) {
+        this.headingStyles.set(p.ref.id, sentinel);
+      }
+    }
+  }
 
   getAllParagraphs(): Paragraph[] {
     return this.paragraphs;
@@ -60,6 +72,10 @@ export class FakeDocumentAdapter implements DocumentAdapter {
   }
   getDocumentState(): DocumentState {
     return this.state;
+  }
+
+  getHeadingStyle(ref: RangeRef): HeadingLevel {
+    return this.headingStyles.get(ref.id) ?? null;
   }
 
   setTextFormat(ref: RangeRef, format: Partial<TextFormat>): void {
@@ -98,16 +114,26 @@ export class FakeDocumentAdapter implements DocumentAdapter {
     return Promise.resolve();
   }
 
-  static makeParagraph(id: string, text: string, overrides: Partial<Paragraph> = {}): Paragraph {
+  static makeParagraph(
+    id: string,
+    text: string,
+    overrides: Partial<Paragraph> & { headingStyle?: HeadingLevel } = {},
+  ): Paragraph {
     const defaultRun: TextRun = {
       ref: { id: `${id}-run-0`, kind: "run" },
       text,
       format: {},
     };
+    const paragraphFormat: ParagraphFormat & { __headingStyle?: HeadingLevel } = {
+      ...(overrides.paragraphFormat ?? {}),
+    };
+    if (overrides.headingStyle !== undefined) {
+      paragraphFormat.__headingStyle = overrides.headingStyle;
+    }
     return {
       ref: { id, kind: "paragraph" },
       text,
-      paragraphFormat: overrides.paragraphFormat ?? {},
+      paragraphFormat,
       runs: overrides.runs ?? [defaultRun],
       listInfo: overrides.listInfo,
     };

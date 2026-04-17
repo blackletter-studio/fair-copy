@@ -25,6 +25,7 @@ function fakeAdapter(): DocumentAdapter {
       hasActiveComments: false,
       commentCount: 0,
     }),
+    getHeadingStyle: () => null,
     setTextFormat: () => {},
     setParagraphFormat: () => {},
     rejectTrackedChange: () => {},

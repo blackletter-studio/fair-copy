@@ -70,6 +70,16 @@ export interface DocumentState {
   commentCount: number;
 }
 
+export type HeadingLevel =
+  | "title"
+  | "heading-1"
+  | "heading-2"
+  | "heading-3"
+  | "heading-4"
+  | "heading-5"
+  | "heading-6"
+  | null;
+
 export interface DetectionResult {
   kind: "tracked-changes" | "images" | "document-state";
   count: number;
@@ -96,6 +106,8 @@ export interface DocumentAdapter {
   getAllTrackedChanges(): TrackedChangeInfo[];
   getAllHyperlinks(): HyperlinkInfo[];
   getDocumentState(): DocumentState;
+  /** Heading style for this paragraph, or null if it is body text. */
+  getHeadingStyle(ref: RangeRef): HeadingLevel;
   setTextFormat(ref: RangeRef, format: Partial<TextFormat>): void;
   setParagraphFormat(ref: RangeRef, format: Partial<ParagraphFormat>): void;
   rejectTrackedChange(ref: RangeRef): void;
