@@ -75,9 +75,11 @@ export function FindingCard({
         </Text>
       ) : (
         <div className={styles.actions}>
-          <Button appearance="primary" onClick={() => onApply(finding)}>
-            Apply
-          </Button>
+          {finding.suggestedText !== undefined && (
+            <Button appearance="primary" onClick={() => onApply(finding)}>
+              Apply
+            </Button>
+          )}
           <Button appearance="subtle" onClick={() => onDismiss(finding)}>
             Dismiss
           </Button>

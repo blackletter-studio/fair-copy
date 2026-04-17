@@ -13,6 +13,7 @@ const finding: Finding = {
   severity: "info",
   confidence: "high",
   message: "Replace straight quotes.",
+  suggestedText: "He said \u201chello\u201d to the court.",
 };
 
 function renderWithTheme(ui: React.ReactElement) {
@@ -88,5 +89,19 @@ describe("FindingCard", () => {
     );
     expect(screen.getByText(/applied/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /apply/i })).toBeNull();
+  });
+
+  it("hides the Apply button when finding has no suggestedText (advisory-only)", () => {
+    const advisoryFinding = { ...finding, suggestedText: undefined };
+    renderWithTheme(
+      <FindingCard
+        finding={advisoryFinding}
+        onApply={() => {}}
+        onDismiss={() => {}}
+        onScrollTo={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /^apply$/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /dismiss/i })).toBeInTheDocument();
   });
 });
