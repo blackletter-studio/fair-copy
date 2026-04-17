@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { Button, Text, makeStyles, tokens } from "@fluentui/react-components";
+import React, { useCallback, useState } from "react";
+import { Button, makeStyles, tokens } from "@fluentui/react-components";
 import type { DocumentAdapter } from "../../engine/types";
 import { runChecks } from "../engine/check-engine";
 import { detectRegions } from "../engine/region-detector";
 import { applyFindingsInBatch } from "../findings/apply-batch";
-import { PROOFMARK_PRESETS, resolvePreset, type PresetName } from "../presets";
+import { PROOFMARK_PRESETS } from "../presets";
 import type { Check, Finding, Region, RegionName } from "../engine/types";
 import { straightQuotesCheck } from "../engine/checks/straight-quotes";
 import { emEnDashesCheck } from "../engine/checks/em-en-dashes";
@@ -22,7 +22,6 @@ import { partyNameConsistencyCheck } from "../engine/checks/party-name-consisten
 import { numericVsWrittenCheck } from "../engine/checks/numeric-vs-written";
 import { tenseConsistencyCheck } from "../engine/checks/tense-consistency";
 import { orphanHeadingCheck } from "../engine/checks/orphan-heading";
-import { PresetSelector } from "./PresetSelector";
 import { RegionBar } from "./RegionBar";
 import { FindingsList } from "./FindingsList";
 import { EmptyState } from "./EmptyState";
@@ -62,39 +61,21 @@ export interface ProofmarkSettingsStore {
 
 export interface ProofmarkPanelProps {
   getDocument: () => DocumentAdapter;
+  /**
+   * Kept in the signature for App.tsx compatibility even though M3 no longer
+   * persists any Proofmark state. Ignored by the current implementation.
+   */
   settingsStore?: ProofmarkSettingsStore;
 }
 
 type ScanState = "idle" | "scanning" | "done";
 
-export function ProofmarkPanel({
-  getDocument,
-  settingsStore,
-}: ProofmarkPanelProps): React.JSX.Element {
+export function ProofmarkPanel({ getDocument }: ProofmarkPanelProps): React.JSX.Element {
   const styles = useStyles();
-  const [presetName, setPresetName] = useState<Exclude<PresetName, "custom">>("standard");
   const [regions, setRegions] = useState<Region[]>([]);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [appliedIds, setAppliedIds] = useState<Set<string>>(new Set());
   const [scanState, setScanState] = useState<ScanState>("idle");
-
-  useEffect(() => {
-    if (!settingsStore) return;
-    const stored = settingsStore.get<string>("proofmark-preset");
-    if (stored === "quiet" || stored === "standard" || stored === "loud") {
-      setPresetName(stored);
-    }
-  }, [settingsStore]);
-
-  const handlePresetChange = useCallback(
-    (next: Exclude<PresetName, "custom">) => {
-      setPresetName(next);
-      if (!settingsStore) return;
-      settingsStore.set("proofmark-preset", next);
-      void settingsStore.saveAsync();
-    },
-    [settingsStore],
-  );
 
   const handleProofread = useCallback(async () => {
     setScanState("scanning");
@@ -102,12 +83,15 @@ export function ProofmarkPanel({
     if (doc.load) await doc.load();
     const detected = detectRegions(doc);
     setRegions(detected);
-    const preset = resolvePreset(presetName);
-    const allFindings = runChecks(doc, ALL_CHECKS, detected, preset);
-    setAppliedIds(new Set()); // nothing applied yet
+    // Single fixed preset — the UI-level preset selector was removed in favor
+    // of a simpler read-only model. PROOFMARK_PRESETS.standard runs every
+    // wired-in check with no overrides, which is what users expect from a
+    // single Proofread button.
+    const allFindings = runChecks(doc, ALL_CHECKS, detected, PROOFMARK_PRESETS.standard);
+    setAppliedIds(new Set());
     setFindings(allFindings);
     setScanState("done");
-  }, [getDocument, presetName]);
+  }, [getDocument]);
 
   const handleApplyAll = useCallback(async () => {
     const doc = getDocument();
@@ -187,7 +171,6 @@ export function ProofmarkPanel({
 
   return (
     <div className={styles.root}>
-      <PresetSelector value={presetName} onChange={handlePresetChange} />
       <Button
         className={styles.runButton}
         appearance="primary"
@@ -225,7 +208,6 @@ export function ProofmarkPanel({
           />
         </>
       )}
-      <Text size={200}>Active preset: {PROOFMARK_PRESETS[presetName].name}</Text>
     </div>
   );
 }
