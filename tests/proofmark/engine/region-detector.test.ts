@@ -118,3 +118,35 @@ describe("detectRegions — indemnification", () => {
     expect(detectRegions(adapter).find((r) => r.name === "indemnification")).toBeUndefined();
   });
 });
+
+describe("detectRegions — line-items", () => {
+  it("detects a run of monetary line items", () => {
+    const adapter = new FakeDocumentAdapter([
+      FakeDocumentAdapter.makeParagraph("p1", "$123.45 Consulting fees"),
+      FakeDocumentAdapter.makeParagraph("p2", "$67.89 Supplies"),
+      FakeDocumentAdapter.makeParagraph("p3", "$1,000.00 Retainer"),
+      FakeDocumentAdapter.makeParagraph("p4", "Thank you for your business."),
+    ]);
+    const regions = detectRegions(adapter);
+    const items = regions.find((r) => r.name === "line-items");
+    expect(items).toBeDefined();
+    expect(items?.range.map((r) => r.id)).toEqual(["p1", "p2", "p3"]);
+  });
+
+  it("detects a run of numeric-prefix line items", () => {
+    const adapter = new FakeDocumentAdapter([
+      FakeDocumentAdapter.makeParagraph("p1", "Qty: 5 widgets"),
+      FakeDocumentAdapter.makeParagraph("p2", "Qty: 12 gizmos"),
+    ]);
+    const regions = detectRegions(adapter);
+    expect(regions.find((r) => r.name === "line-items")).toBeDefined();
+  });
+
+  it("ignores single isolated monetary paragraphs (needs a run)", () => {
+    const adapter = new FakeDocumentAdapter([
+      FakeDocumentAdapter.makeParagraph("p1", "$123.45 one-off."),
+      FakeDocumentAdapter.makeParagraph("p2", "Normal sentence."),
+    ]);
+    expect(detectRegions(adapter).find((r) => r.name === "line-items")).toBeUndefined();
+  });
+});

@@ -114,6 +114,43 @@ function detectIndemnification(doc: DocumentAdapter, paragraphs: Paragraph[]): R
   return regions;
 }
 
+const LINE_ITEM_PATTERNS = [
+  /^\$\d/, // "$123..."
+  /^qty[:\s]/i, // "Qty: 5..."
+  /^\d+\s*[x×]\s*\d/i, // "5 x 10..."
+];
+
+function isLineItemText(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return false;
+  return LINE_ITEM_PATTERNS.some((re) => re.test(trimmed));
+}
+
+function detectLineItems(paragraphs: Paragraph[]): Region[] {
+  const regions: Region[] = [];
+  let run: Paragraph[] = [];
+  const flush = () => {
+    if (run.length >= 2) {
+      regions.push({
+        name: "line-items",
+        range: run.map((p) => p.ref),
+        confidence: "medium",
+        confirmed: false,
+      });
+    }
+    run = [];
+  };
+  for (const p of paragraphs) {
+    if (isLineItemText(p.text)) {
+      run.push(p);
+    } else {
+      flush();
+    }
+  }
+  flush();
+  return regions;
+}
+
 export function detectRegions(doc: DocumentAdapter): Region[] {
   const paragraphs = doc.getAllParagraphs();
   if (paragraphs.length === 0) return [];
@@ -121,6 +158,7 @@ export function detectRegions(doc: DocumentAdapter): Region[] {
   regions.push(...detectRecitals(doc, paragraphs));
   regions.push(...detectDefinitions(doc, paragraphs));
   regions.push(...detectIndemnification(doc, paragraphs));
+  regions.push(...detectLineItems(paragraphs));
   return regions;
 }
 
