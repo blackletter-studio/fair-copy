@@ -26,7 +26,8 @@ const useStyles = makeStyles({
   },
   actions: {
     display: "flex",
-    gap: tokens.spacingHorizontalS,
+    flexWrap: "wrap",
+    gap: tokens.spacingHorizontalXS,
     justifyContent: "flex-end",
   },
   confidence: {
@@ -79,16 +80,21 @@ export function FindingCard({
       ) : (
         <div className={styles.actions}>
           {finding.suggestedText !== undefined && (
-            <Button appearance="primary" onClick={() => onApply(finding)}>
+            <Button appearance="primary" size="small" onClick={() => onApply(finding)}>
               Apply
             </Button>
           )}
           {finding.checkName === "spelling" && onAddToDictionary !== undefined && (
-            <Button appearance="subtle" onClick={() => onAddToDictionary(finding)}>
-              Add to dictionary
+            <Button
+              appearance="subtle"
+              size="small"
+              aria-label="Add to dictionary"
+              onClick={() => onAddToDictionary(finding)}
+            >
+              Add word
             </Button>
           )}
-          <Button appearance="subtle" onClick={() => onDismiss(finding)}>
+          <Button appearance="subtle" size="small" onClick={() => onDismiss(finding)}>
             Dismiss
           </Button>
         </div>
