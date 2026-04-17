@@ -71,4 +71,44 @@ describe("RedeemDialog", () => {
       expect(screen.getByText(/redeemed by a different email/i)).toBeInTheDocument();
     });
   });
+
+  it("shows a network-error copy when fetch throws (server unreachable)", async () => {
+    // Simulates DNS failure, offline, or worker-not-deployed. Matt saw this
+    // when he tested a fake code before the Cloudflare Worker was deployed.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Load failed");
+      }),
+    );
+    renderWithTheme(<RedeemDialog open onClose={() => {}} onSuccess={() => {}} />);
+    fireEvent.change(screen.getByLabelText(/license code/i), {
+      target: { value: "FC-0000-0000-0001" },
+    });
+    fireEvent.change(screen.getByLabelText(/email/i), {
+      target: { value: "a@example.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /activate/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/couldn't reach the license server/i)).toBeInTheDocument();
+    });
+  });
+
+  it("shows a 404 error with a typo hint when the code doesn't exist", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ error: "Code not found" }), { status: 404 })),
+    );
+    renderWithTheme(<RedeemDialog open onClose={() => {}} onSuccess={() => {}} />);
+    fireEvent.change(screen.getByLabelText(/license code/i), {
+      target: { value: "FC-0000-0000-0001" },
+    });
+    fireEvent.change(screen.getByLabelText(/email/i), {
+      target: { value: "a@example.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /activate/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/license code not found/i)).toBeInTheDocument();
+    });
+  });
 });

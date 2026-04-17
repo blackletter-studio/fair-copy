@@ -62,13 +62,28 @@ export function RedeemDialog({ open, onClose, onSuccess }: RedeemDialogProps): R
       onSuccess(result.token);
       return;
     }
-    if (result.status === 404) setError("Code not found. Double-check and retry.");
-    else if (result.status === 409)
+    // Distinguish between user-input errors, server errors, and
+    // network-unreachable so we can surface actionable copy for each.
+    if (result.status === 0) {
+      // fetch() threw — DNS / offline / cert rejection / Worker undeployed.
       setError(
-        "This code was redeemed by a different email address. Contact support@blackletter.studio if you believe this is an error.",
+        "Couldn't reach the license server. Check your internet connection and try again. If the problem persists, email support@blackletter.studio.",
       );
-    else if (result.status === 400) setError(result.message);
-    else setError(`Something went wrong (${result.message}). Try again in a moment.`);
+    } else if (result.status === 404) {
+      setError("License code not found. Check for typos and try again.");
+    } else if (result.status === 409) {
+      setError(
+        "This code was already redeemed by a different email address. Use the email the code was issued to, or email support@blackletter.studio if you believe this is an error.",
+      );
+    } else if (result.status === 400) {
+      setError(result.message);
+    } else if (result.status >= 500) {
+      setError(
+        "The license server had a problem processing your request. Try again in a moment; if it persists, email support@blackletter.studio.",
+      );
+    } else {
+      setError(`Unexpected error (${result.message}). Try again in a moment.`);
+    }
   };
 
   return (
