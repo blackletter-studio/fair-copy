@@ -150,3 +150,38 @@ describe("detectRegions — line-items", () => {
     expect(detectRegions(adapter).find((r) => r.name === "line-items")).toBeUndefined();
   });
 });
+
+describe("detectRegions — signature-block", () => {
+  it("detects a 'By:' + signature-line pair at the end of the doc", () => {
+    const paras = [];
+    for (let i = 0; i < 10; i++) {
+      paras.push(FakeDocumentAdapter.makeParagraph(`body-${i}`, `Body line ${i}.`));
+    }
+    paras.push(FakeDocumentAdapter.makeParagraph("sig1", "By: ___________________"));
+    paras.push(FakeDocumentAdapter.makeParagraph("sig2", "Name: Jane Doe"));
+    const adapter = new FakeDocumentAdapter(paras);
+    const regions = detectRegions(adapter);
+    const sig = regions.find((r) => r.name === "signature-block");
+    expect(sig).toBeDefined();
+    expect(sig?.range.map((r) => r.id)).toContain("sig1");
+  });
+
+  it("does not detect a 'By:' near the top of the document", () => {
+    const paras = [FakeDocumentAdapter.makeParagraph("p1", "By: introducing the case.")];
+    for (let i = 0; i < 10; i++) {
+      paras.push(FakeDocumentAdapter.makeParagraph(`body-${i}`, `Body line ${i}.`));
+    }
+    const adapter = new FakeDocumentAdapter(paras);
+    expect(detectRegions(adapter).find((r) => r.name === "signature-block")).toBeUndefined();
+  });
+
+  it("detects an underscore-line near the bottom", () => {
+    const paras = [];
+    for (let i = 0; i < 10; i++) {
+      paras.push(FakeDocumentAdapter.makeParagraph(`body-${i}`, `Body line ${i}.`));
+    }
+    paras.push(FakeDocumentAdapter.makeParagraph("line", "________________________"));
+    const adapter = new FakeDocumentAdapter(paras);
+    expect(detectRegions(adapter).find((r) => r.name === "signature-block")).toBeDefined();
+  });
+});

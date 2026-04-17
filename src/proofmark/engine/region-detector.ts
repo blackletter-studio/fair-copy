@@ -151,6 +151,38 @@ function detectLineItems(paragraphs: Paragraph[]): Region[] {
   return regions;
 }
 
+const UNDERSCORE_LINE = /_{10,}/;
+
+function isSignatureText(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return false;
+  if (/^by:/i.test(trimmed)) return true;
+  if (UNDERSCORE_LINE.test(trimmed)) return true;
+  return false;
+}
+
+function detectSignatureBlock(paragraphs: Paragraph[]): Region[] {
+  const regions: Region[] = [];
+  const total = paragraphs.length;
+  if (total === 0) return regions;
+  const cutoff = Math.floor(total * 0.8);
+  const hits: Paragraph[] = [];
+  for (let i = cutoff; i < total; i++) {
+    const p = paragraphs[i];
+    if (!p) continue;
+    if (isSignatureText(p.text)) hits.push(p);
+  }
+  if (hits.length > 0) {
+    regions.push({
+      name: "signature-block",
+      range: hits.map((p) => p.ref),
+      confidence: hits.length >= 2 ? "high" : "medium",
+      confirmed: hits.length >= 2,
+    });
+  }
+  return regions;
+}
+
 export function detectRegions(doc: DocumentAdapter): Region[] {
   const paragraphs = doc.getAllParagraphs();
   if (paragraphs.length === 0) return [];
@@ -159,6 +191,7 @@ export function detectRegions(doc: DocumentAdapter): Region[] {
   regions.push(...detectDefinitions(doc, paragraphs));
   regions.push(...detectIndemnification(doc, paragraphs));
   regions.push(...detectLineItems(paragraphs));
+  regions.push(...detectSignatureBlock(paragraphs));
   return regions;
 }
 
