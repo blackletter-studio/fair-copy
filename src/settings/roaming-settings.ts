@@ -24,30 +24,8 @@ export class OfficeRoamingSettingsStore implements SettingsStore {
     Office.context.roamingSettings.remove(NAMESPACE + key);
   }
   saveAsync(): Promise<void> {
-    // Office.context.roamingSettings.saveAsync has a known flaky behavior where
-    // the callback sometimes never fires (add-in idle, memory pressure, etc.).
-    // Without a timeout, any awaiter hangs forever — which locks up the Clean
-    // button state machine. We fall back to a 3-second timeout: if the callback
-    // hasn't fired by then, we resolve best-effort because the in-memory write
-    // via Office.context.roamingSettings.set() already happened and the value
-    // will persist on the next successful save. Logging lets us spot chronic
-    // saveAsync failures in DevTools.
-    const TIMEOUT_MS = 3000;
     return new Promise((resolve, reject) => {
-      let settled = false;
-      const timeout = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        // eslint-disable-next-line no-console
-        console.warn(
-          `roamingSettings.saveAsync timed out after ${TIMEOUT_MS}ms — resolving best-effort. In-memory set() already happened; value will persist on next save.`,
-        );
-        resolve();
-      }, TIMEOUT_MS);
       Office.context.roamingSettings.saveAsync((result) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
         if (result.status === Office.AsyncResultStatus.Succeeded) resolve();
         else reject(new Error(result.error?.message ?? "saveAsync failed"));
       });
