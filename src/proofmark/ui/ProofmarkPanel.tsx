@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { Button, makeStyles, tokens } from "@fluentui/react-components";
+import { Button, Tab, TabList, makeStyles, tokens } from "@fluentui/react-components";
 import type { DocumentAdapter } from "../../engine/types";
 import { runChecks } from "../engine/check-engine";
 import { detectRegions } from "../engine/region-detector";
@@ -23,6 +23,7 @@ import { numericVsWrittenCheck } from "../engine/checks/numeric-vs-written";
 import { tenseConsistencyCheck } from "../engine/checks/tense-consistency";
 import { orphanHeadingCheck } from "../engine/checks/orphan-heading";
 import { spellingCheck, runSpelling } from "../engine/checks/spelling";
+import { grammarCheck, runGrammar } from "../engine/checks/grammar";
 import { RegionBar } from "./RegionBar";
 import { FindingsList } from "./FindingsList";
 import { EmptyState } from "./EmptyState";
@@ -41,7 +42,10 @@ const ALL_CHECKS: Check[] = [
   tenseConsistencyCheck,
   orphanHeadingCheck,
   spellingCheck,
+  grammarCheck,
 ];
+
+type ProofmarkTab = "spelling" | "grammar" | "style";
 
 const useStyles = makeStyles({
   root: {
@@ -52,6 +56,11 @@ const useStyles = makeStyles({
   },
   runButton: {
     width: "100%",
+  },
+  emptyTab: {
+    color: tokens.colorNeutralForeground3,
+    fontStyle: "italic",
+    padding: `${tokens.spacingVerticalS} 0`,
   },
 });
 
@@ -81,6 +90,7 @@ export function ProofmarkPanel({
   const [findings, setFindings] = useState<Finding[]>([]);
   const [appliedIds, setAppliedIds] = useState<Set<string>>(new Set());
   const [scanState, setScanState] = useState<ScanState>("idle");
+  const [activeTab, setActiveTab] = useState<ProofmarkTab>("spelling");
 
   const handleProofread = useCallback(async () => {
     setScanState("scanning");
@@ -95,9 +105,11 @@ export function ProofmarkPanel({
     const checkFindings = runChecks(doc, ALL_CHECKS, detected, PROOFMARK_PRESETS.standard);
     const customDict = settingsStore?.get<string[]>("proofmark-custom-dict") ?? [];
     const spellingFindings = await runSpelling(doc, customDict);
-    const allFindings = [...checkFindings, ...spellingFindings];
+    const grammarFindings = await runGrammar(doc, customDict);
+    const allFindings = [...checkFindings, ...spellingFindings, ...grammarFindings];
     setAppliedIds(new Set());
     setFindings(allFindings);
+    setActiveTab("spelling");
     setScanState("done");
   }, [getDocument, settingsStore]);
 
@@ -201,6 +213,19 @@ export function ProofmarkPanel({
         ? "Proofread again"
         : "Proofread";
 
+  // Partition findings into the three tab buckets.
+  const spellingFindings = findings.filter((f) => f.checkName === "spelling");
+  const grammarFindings = findings.filter((f) => f.checkName === "grammar");
+  const styleFindings = findings.filter(
+    (f) => f.checkName !== "spelling" && f.checkName !== "grammar",
+  );
+  const activeFindings =
+    activeTab === "spelling"
+      ? spellingFindings
+      : activeTab === "grammar"
+        ? grammarFindings
+        : styleFindings;
+
   return (
     <div className={styles.root}>
       <Button
@@ -222,23 +247,45 @@ export function ProofmarkPanel({
       ) : (
         <>
           {scanState === "done" && findings.length > 0 && (
-            <div style={{ display: "flex", gap: tokens.spacingHorizontalS }}>
-              <Button appearance="primary" onClick={() => void handleApplySafe()}>
-                Apply safe changes
-              </Button>
-              <Button appearance="subtle" onClick={() => void handleApplyAll()}>
-                Apply all
-              </Button>
-            </div>
+            <>
+              <div style={{ display: "flex", gap: tokens.spacingHorizontalS }}>
+                <Button appearance="primary" onClick={() => void handleApplySafe()}>
+                  Apply safe changes
+                </Button>
+                <Button appearance="subtle" onClick={() => void handleApplyAll()}>
+                  Apply all
+                </Button>
+              </div>
+              <TabList
+                selectedValue={activeTab}
+                onTabSelect={(_, data) => {
+                  if (
+                    data.value === "spelling" ||
+                    data.value === "grammar" ||
+                    data.value === "style"
+                  ) {
+                    setActiveTab(data.value);
+                  }
+                }}
+              >
+                <Tab value="spelling">Spelling ({spellingFindings.length})</Tab>
+                <Tab value="grammar">Grammar ({grammarFindings.length})</Tab>
+                <Tab value="style">Style ({styleFindings.length})</Tab>
+              </TabList>
+              {activeFindings.length === 0 ? (
+                <p className={styles.emptyTab}>No findings in this category.</p>
+              ) : (
+                <FindingsList
+                  findings={activeFindings}
+                  appliedIds={appliedIds}
+                  onApply={(f) => void handleApply(f)}
+                  onDismiss={handleDismiss}
+                  onScrollTo={handleScrollTo}
+                  onAddToDictionary={settingsStore ? handleAddToDictionary : undefined}
+                />
+              )}
+            </>
           )}
-          <FindingsList
-            findings={findings}
-            appliedIds={appliedIds}
-            onApply={(f) => void handleApply(f)}
-            onDismiss={handleDismiss}
-            onScrollTo={handleScrollTo}
-            onAddToDictionary={settingsStore ? handleAddToDictionary : undefined}
-          />
         </>
       )}
     </div>
