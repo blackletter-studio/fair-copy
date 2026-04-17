@@ -124,6 +124,8 @@ export interface DocumentAdapter {
   removeSectionBreaks(): void;
   /** Scroll the document view to the paragraph identified by ref and select it. */
   selectRange(ref: RangeRef): void;
+  /** Replace text at a specific sub-paragraph range (by ref). Used by spelling. */
+  replaceRange(ref: RangeRef, newText: string): void;
   commit(): Promise<void>;
 }
 

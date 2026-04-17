@@ -24,7 +24,8 @@ export interface FakeMutation {
     | "setListStyle"
     | "setTableBorders"
     | "removeSectionBreaks"
-    | "selectRange";
+    | "selectRange"
+    | "replaceRange";
   ref?: RangeRef;
   payload?: unknown;
 }
@@ -122,6 +123,22 @@ export class FakeDocumentAdapter implements DocumentAdapter {
 
   selectRange(ref: RangeRef): void {
     this.mutations.push({ op: "selectRange", ref });
+  }
+
+  replaceRange(ref: RangeRef, newText: string): void {
+    this.mutations.push({ op: "replaceRange", ref, payload: newText });
+    // Parse spell-<paraIdx>-<offset>-<len> and mutate in-memory text.
+    const spellMatch = /^spell-(\d+)-(\d+)-(\d+)$/.exec(ref.id);
+    if (!spellMatch) return;
+    const paraIdx = Number.parseInt(spellMatch[1]!, 10);
+    const offset = Number.parseInt(spellMatch[2]!, 10);
+    const len = Number.parseInt(spellMatch[3]!, 10);
+    // eslint-disable-next-line security/detect-object-injection -- values parsed from ids we formatted
+    const para = this.paragraphs[paraIdx];
+    if (!para) return;
+    const newFullText = para.text.slice(0, offset) + newText + para.text.slice(offset + len);
+    para.text = newFullText;
+    if (para.runs[0]) para.runs[0].text = newFullText;
   }
 
   commit(): Promise<void> {

@@ -468,31 +468,133 @@ export class WordDocumentAdapter implements DocumentAdapter {
     // take effect immediately on click, not wait for the next commit(). So we
     // run our own Word.run + sync here rather than queueing into
     // pendingMutations (which is the batch pipeline used by Apply all / safe).
-    const match = /^para-(\d+)$/.exec(ref.id);
+    const paraMatch = /^para-(\d+)$/.exec(ref.id);
+    const spellMatch = /^spell-(\d+)-(\d+)-(\d+)$/.exec(ref.id);
+
+    if (paraMatch) {
+      const paraIdxStr = paraMatch[1];
+      if (paraIdxStr === undefined) return;
+      const paraIdx = Number.parseInt(paraIdxStr, 10);
+      // Fire-and-forget; caller doesn't await. Log failures rather than throw so
+      // a stuck-selection never corrupts the React state machine.
+      void (async () => {
+        try {
+          await this.waitForWordApi();
+          await Word.run(async (context) => {
+            const paragraphs = context.document.body.paragraphs;
+            paragraphs.load("items");
+            await context.sync();
+            // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
+            const p = paragraphs.items[paraIdx];
+            if (!p) return;
+            p.select();
+            await context.sync();
+          });
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn("selectRange failed:", err);
+        }
+      })();
+      return;
+    }
+
+    if (spellMatch) {
+      const paraIdx = Number.parseInt(spellMatch[1]!, 10);
+      const offset = Number.parseInt(spellMatch[2]!, 10);
+      const len = Number.parseInt(spellMatch[3]!, 10);
+      // eslint-disable-next-line security/detect-object-injection -- values parsed from ids we formatted
+      const cachedPara = this.loadedParagraphs[paraIdx];
+      if (!cachedPara) return;
+      const word = cachedPara.text.slice(offset, offset + len);
+      void (async () => {
+        try {
+          await this.waitForWordApi();
+          await Word.run(async (context) => {
+            const paragraphs = context.document.body.paragraphs;
+            paragraphs.load("items");
+            await context.sync();
+            // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted
+            const p = paragraphs.items[paraIdx];
+            if (!p) return;
+            // Fall back to paragraph-level selection if word is empty or search
+            // is unreliable (e.g. word appears multiple times in paragraph).
+            if (!word) {
+              p.select();
+              await context.sync();
+              return;
+            }
+            try {
+              const results = p.search(word, { matchCase: true });
+              results.load("items");
+              await context.sync();
+              const first = results.items[0];
+              if (first) {
+                first.select();
+              } else {
+                // Word not found by search — fall back to paragraph selection.
+                // eslint-disable-next-line no-console
+                console.warn(
+                  `selectRange(spell): word "${word}" not found in para-${paraIdx}; selecting paragraph`,
+                );
+                p.select();
+              }
+              await context.sync();
+            } catch (searchErr) {
+              // eslint-disable-next-line no-console
+              console.warn(
+                "selectRange(spell): search failed; falling back to paragraph select",
+                searchErr,
+              );
+              p.select();
+              await context.sync();
+            }
+          });
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn("selectRange(spell) failed:", err);
+        }
+      })();
+    }
+  }
+
+  replaceRange(ref: RangeRef, newText: string): void {
+    const match = /^spell-(\d+)-(\d+)-(\d+)$/.exec(ref.id);
     if (!match) return;
-    const paraIdxStr = match[1];
-    if (paraIdxStr === undefined) return;
-    const paraIdx = Number.parseInt(paraIdxStr, 10);
-    // Fire-and-forget; caller doesn't await. Log failures rather than throw so
-    // a stuck-selection never corrupts the React state machine.
-    void (async () => {
+    const paraIdx = Number.parseInt(match[1]!, 10);
+    const offset = Number.parseInt(match[2]!, 10);
+    const len = Number.parseInt(match[3]!, 10);
+    // eslint-disable-next-line security/detect-object-injection -- values parsed from ids we formatted
+    const cachedPara = this.loadedParagraphs[paraIdx];
+    if (!cachedPara) return;
+    const oldWord = cachedPara.text.slice(offset, offset + len);
+    // Optimistically update cache.
+    const newFullText =
+      cachedPara.text.slice(0, offset) + newText + cachedPara.text.slice(offset + len);
+    cachedPara.text = newFullText;
+    if (cachedPara.runs[0]) cachedPara.runs[0].text = newFullText;
+
+    this.pendingMutations.push(async (ctx) => {
+      // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted
+      const p = ctx.document.body.paragraphs.items[paraIdx];
+      if (!p) return;
       try {
-        await this.waitForWordApi();
-        await Word.run(async (context) => {
-          const paragraphs = context.document.body.paragraphs;
-          paragraphs.load("items");
-          await context.sync();
-          // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
-          const p = paragraphs.items[paraIdx];
-          if (!p) return;
-          p.select();
-          await context.sync();
-        });
+        const results = p.search(oldWord, { matchCase: true });
+        results.load("items");
+        await ctx.sync();
+        const first = results.items[0];
+        if (first) {
+          first.insertText(newText, Word.InsertLocation.replace);
+        } else {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `replaceRange: word "${oldWord}" not found in para-${paraIdx}; skipping replacement`,
+          );
+        }
       } catch (err) {
         // eslint-disable-next-line no-console
-        console.warn("selectRange failed:", err);
+        console.warn("replaceRange failed:", err);
       }
-    })();
+    });
   }
 
   async commit(): Promise<void> {
