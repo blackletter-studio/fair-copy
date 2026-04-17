@@ -51,3 +51,37 @@ describe("detectRegions — recitals", () => {
     expect(detectRegions(adapter).find((r) => r.name === "recitals")).toBeUndefined();
   });
 });
+
+describe("detectRegions — definitions", () => {
+  it("detects definitions under a 'Definitions' heading", () => {
+    const adapter = new FakeDocumentAdapter([
+      FakeDocumentAdapter.makeParagraph("h1", "Definitions", { headingStyle: "heading-1" }),
+      FakeDocumentAdapter.makeParagraph("p1", '"Agreement" means this document.'),
+      FakeDocumentAdapter.makeParagraph("p2", '"Party" shall mean either signatory.'),
+      FakeDocumentAdapter.makeParagraph("h2", "Term", { headingStyle: "heading-1" }),
+    ]);
+    const regions = detectRegions(adapter);
+    const defs = regions.find((r) => r.name === "definitions");
+    expect(defs).toBeDefined();
+    expect(defs?.range.map((r) => r.id)).toEqual(["p1", "p2"]);
+  });
+
+  it("detects orphaned definition-pattern paragraphs even without a heading", () => {
+    const adapter = new FakeDocumentAdapter([
+      FakeDocumentAdapter.makeParagraph("p1", "Normal sentence."),
+      FakeDocumentAdapter.makeParagraph("p2", '"Buyer" means ABC Corp.'),
+    ]);
+    const regions = detectRegions(adapter);
+    const defs = regions.find((r) => r.name === "definitions");
+    expect(defs).toBeDefined();
+    expect(defs?.range.map((r) => r.id)).toContain("p2");
+    expect(defs?.confidence).toBe("medium");
+  });
+
+  it("does not flag unrelated paragraphs", () => {
+    const adapter = new FakeDocumentAdapter([
+      FakeDocumentAdapter.makeParagraph("p1", "The meaning of life is unclear."),
+    ]);
+    expect(detectRegions(adapter).find((r) => r.name === "definitions")).toBeUndefined();
+  });
+});
