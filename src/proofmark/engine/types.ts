@@ -14,7 +14,8 @@ export type CheckName =
   | "numeric-vs-written"
   | "tense-consistency"
   | "orphan-heading"
-  | "spelling";
+  | "spelling"
+  | "grammar";
 
 export type RegionName =
   | "recitals"
