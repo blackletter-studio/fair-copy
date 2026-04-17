@@ -8,3 +8,4 @@ coverage/
 .vite/
 tsconfig.tsbuildinfo
 *.tsbuildinfo
+.private-key.pem

@@ -1,0 +1,23 @@
+{
+  "name": "@fair-copy/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "jose": "^5.9.6"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260101.0",
+    "miniflare": "^4.20241022.0",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.4",
+    "wrangler": "^3.90.0"
+  }
+}
