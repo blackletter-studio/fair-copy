@@ -36,6 +36,8 @@ export const citationFormatCheck: Check = {
 
     for (const para of paragraphs) {
       if (CASE_NAME_DOUBLE_SPACE.test(para.text)) {
+        // Collapse runs of 2+ spaces to 1 within the citation pattern.
+        const suggested = para.text.replace(/(\S) {2,}(v\.) {2,}(\S)/g, "$1 $2 $3");
         findings.push({
           id: `citation-format::double-space::${para.ref.id}`,
           checkName: "citation-format",
@@ -45,11 +47,15 @@ export const citationFormatCheck: Check = {
           severity: "info",
           confidence: "medium",
           message: "Double-space inside a citation — Bluebook uses a single space.",
+          suggestedText: suggested !== para.text ? suggested : undefined,
         });
       }
     }
 
     return findings;
   },
-  apply(_doc: DocumentAdapter, _finding: Finding): void {},
+  apply(doc: DocumentAdapter, finding: Finding): void {
+    if (finding.suggestedText === undefined) return;
+    doc.setParagraphText(finding.range, finding.suggestedText);
+  },
 };

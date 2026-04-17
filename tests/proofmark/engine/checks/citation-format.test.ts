@@ -26,4 +26,13 @@ describe("citation-format check", () => {
     ]);
     expect(citationFormatCheck.run(adapter, null, { mode: "interactive" })).toHaveLength(0);
   });
+
+  it("produces suggestedText for the double-space citation case", () => {
+    const adapter = new FakeDocumentAdapter([
+      FakeDocumentAdapter.makeParagraph("p1", "Smith  v.  Jones, 123 U.S. 456."),
+    ]);
+    const findings = citationFormatCheck.run(adapter, null, { mode: "interactive" });
+    const dbl = findings.find((f) => f.message.toLowerCase().includes("double"));
+    expect(dbl?.suggestedText).toBe("Smith v. Jones, 123 U.S. 456.");
+  });
 });
