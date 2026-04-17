@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "path";
-import { getHttpsServerOptions } from "office-addin-dev-certs";
+import { getHttpsServerOptions } from "office-addin-dev-certs/lib/main.js";
 
 // Vite 8 dropped its built-in HTTPS cert generator, so we load certs from
 // `office-addin-dev-certs` (a transitive dep of `office-addin-debugging`).
