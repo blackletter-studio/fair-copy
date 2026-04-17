@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Production manifest for Fair Copy.
+
+  Points at the publicly-hosted task-pane bundle (Cloudflare Pages at
+  fair-copy-addin.pages.dev) and the licensing API (Cloudflare Worker at
+  fair-copy.blackletter.studio). Used for:
+
+    (a) Sideload distribution from blackletter.studio — users download
+        this file and register it with Word via "Office Add-ins → My
+        Add-ins → Upload My Add-in".
+    (b) AppSource listing submission.
+
+  The sibling `manifest.xml` keeps localhost URLs for local `pnpm
+  start:word` development; don't edit the production manifest to match
+  it or you'll break the public install flow.
+
+  Before AppSource submission, replace:
+    - the placeholder icon PNGs (solid color) with real branded art,
+    - the GUID (currently a zero-based placeholder) with a fresh one
+      generated via `uuidgen`,
+    - the Version with the actual release version,
+    - DisplayName "(dev)" → "Fair Copy" (no suffix).
+-->
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+           xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+           xsi:type="TaskPaneApp">
+  <Id>00000000-0000-0000-0000-000000000002</Id>
+  <Version>0.1.0.0</Version>
+  <ProviderName>Black Letter Studio</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Fair Copy" />
+  <Description DefaultValue="Legal-document cleanup for Microsoft Word. Strip formatting noise, curl quotes, normalize citations, and more. Includes Proofmark — a free legal-aware proofreader." />
+  <IconUrl DefaultValue="https://fair-copy-addin.pages.dev/assets/icon-80.png" />
+  <HighResolutionIconUrl DefaultValue="https://fair-copy-addin.pages.dev/assets/icon-128.png" />
+  <SupportUrl DefaultValue="https://blackletter.studio/support" />
+  <AppDomains>
+    <AppDomain>https://blackletter.studio</AppDomain>
+    <AppDomain>https://fair-copy-addin.pages.dev</AppDomain>
+    <AppDomain>https://fair-copy.blackletter.studio</AppDomain>
+  </AppDomains>
+  <Hosts>
+    <Host Name="Document" />
+  </Hosts>
+  <Requirements>
+    <Sets DefaultMinVersion="1.7">
+      <Set Name="WordApi" MinVersion="1.7" />
+    </Sets>
+  </Requirements>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://fair-copy-addin.pages.dev/src/taskpane/" />
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+</OfficeApp>
