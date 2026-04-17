@@ -58,6 +58,17 @@ export class WordDocumentAdapter implements DocumentAdapter {
     throw new Error("WordDocumentAdapter.stripHyperlinkFormatting: implement in M2 Task 8");
   }
 
+  setListStyle(
+    _ref: RangeRef,
+    _style: { type: "bullet" | "number"; markerStyle?: "simple"; level?: number } | null,
+  ): void {
+    throw new Error("WordDocumentAdapter.setListStyle: implement in M2 Task 8");
+  }
+
+  setTableBorders(_ref: RangeRef, _borders: { style: "none" | "hairline" } | null): void {
+    throw new Error("WordDocumentAdapter.setTableBorders: implement in M2 Task 8");
+  }
+
   async commit(): Promise<void> {
     if (this.pendingMutations.length === 0) return;
     await Word.run(async (context) => {
