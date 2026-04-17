@@ -65,13 +65,6 @@ export function App({ createAdapter }: AppProps = {}): ReactElement {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      // main.tsx awaits Office.onReady before the first render, but on HMR
-      // remounts (and occasionally on cold start under Word for Mac) the
-      // useEffect body can execute before `Office.context.roamingSettings`
-      // is populated, throwing `TypeError: undefined is not an object`.
-      // Re-awaiting is idempotent and cheap.
-      await Office.onReady();
-
       const remainingCount = await remainingFreeCleans(settingsStore);
       const isDone = await isTrialExhausted(settingsStore);
       const firstRunSeen = settingsStore.get<string>("first-run-seen") === "true";
@@ -167,23 +160,8 @@ export function App({ createAdapter }: AppProps = {}): ReactElement {
       await finalizeCleanSuccess();
     } catch (err) {
       // Surface errors by reverting to idle; future work (M2.5) will show a
-      // toast. For now, logging is enough to debug. Extract Office.js error
-      // details — code, message, debugInfo — which are the actually useful
-      // fields. The default .toString() just gives the function name.
-      const e = err as {
-        name?: string;
-        message?: string;
-        code?: string;
-        debugInfo?: unknown;
-        stack?: string;
-      };
-      console.error("runPreset failed:", {
-        name: e.name,
-        message: e.message,
-        code: e.code,
-        debugInfo: e.debugInfo,
-        stack: e.stack,
-      });
+      // toast. For now, logging is enough to debug.
+      console.error("runPreset failed:", err);
       setCleanState("idle");
     }
   };

@@ -51,31 +51,8 @@ export class WordDocumentAdapter implements DocumentAdapter {
   private loadedHyperlinks: HyperlinkInfo[] = [];
   private loadedState: DocumentState | null = null;
   private pendingMutations: Array<(ctx: Word.RequestContext) => void> = [];
-  // The comment collection pre-loaded by commit() before replaying mutations.
-  // Closures reference `this.preloadedComments` instead of calling
-  // `ctx.document.body.getComments()` because Office.js returns a fresh
-  // (unloaded) proxy on each call — load state is per-proxy, not per-collection.
-  private preloadedComments: Word.CommentCollection | null = null;
-
-  /**
-   * Wait for Office.js + Word host API to be ready. main.tsx already awaits
-   * Office.onReady before the first render, but vite HMR can remount App in a
-   * narrow window where the Word namespace hasn't been attached to the global
-   * yet. Re-awaiting onReady is idempotent and cheap — resolves synchronously
-   * if already ready. After it resolves, Word must be defined; otherwise the
-   * task pane is hosted outside of Word and we fail loud.
-   */
-  private async waitForWordApi(): Promise<void> {
-    await Office.onReady();
-    if (typeof Word === "undefined") {
-      throw new Error(
-        "Office.onReady resolved but Word namespace is missing — add-in may be hosted outside Word.",
-      );
-    }
-  }
 
   async load(): Promise<void> {
-    await this.waitForWordApi();
     await Word.run(async (context) => {
       const body = context.document.body;
 
@@ -192,10 +169,7 @@ export class WordDocumentAdapter implements DocumentAdapter {
       if (format.fontSize !== undefined) font.size = format.fontSize;
       if (format.fontColor !== undefined) font.color = format.fontColor;
       if (format.highlight !== undefined) {
-        // Clearing highlight: Word for Mac rejects "NoColor" with InvalidArgument
-        // (works on Windows). Empty string is the cross-platform clear sentinel
-        // per the Office.js docs. Non-null passes the color string through.
-        font.highlightColor = format.highlight === null ? "" : format.highlight;
+        font.highlightColor = format.highlight === null ? "NoColor" : format.highlight;
       }
       if (format.bold !== undefined) font.bold = format.bold;
       if (format.italic !== undefined) font.italic = format.italic;
@@ -264,13 +238,15 @@ export class WordDocumentAdapter implements DocumentAdapter {
   }
 
   removeComments(): void {
-    this.pendingMutations.push(() => {
-      // Office.js gotcha: `body.getComments()` returns a NEW proxy on every
-      // call; load state doesn't travel with the collection abstractly, only
-      // with the specific proxy instance. So we read from `this.preloadedComments`
-      // which was populated + sync'd in commit() before this closure ran.
-      const comments = this.preloadedComments;
-      if (!comments) return;
+    this.pendingMutations.push((ctx) => {
+      const comments = ctx.document.body.getComments();
+      // commit() pre-loads `body.paragraphs.items` + friends before replaying
+      // mutations, but comments are loaded lazily here. Items will populate
+      // after the final context.sync() in commit(), at which point the delete
+      // calls are already queued. Office.js resolves comment handles lazily,
+      // so queuing delete() on each item is safe even before items is read.
+      // TODO(M2.5): confirm commit-batch iteration semantics against real Word.
+      comments.load("items");
       for (const c of comments.items) {
         c.delete();
       }
@@ -371,7 +347,6 @@ export class WordDocumentAdapter implements DocumentAdapter {
 
   async commit(): Promise<void> {
     if (this.pendingMutations.length === 0) return;
-    await this.waitForWordApi();
     const mutations = this.pendingMutations;
     this.pendingMutations = [];
     await Word.run(async (context) => {
@@ -381,12 +356,6 @@ export class WordDocumentAdapter implements DocumentAdapter {
       body.paragraphs.load("items");
       body.inlinePictures.load("items");
       body.tables.load("items");
-      // Pre-load comments and store the exact proxy on `this` so the
-      // removeComments closure can reference it. Load state is per-proxy;
-      // calling body.getComments() a second time inside the closure would
-      // return a fresh unloaded proxy and throw PropertyNotLoaded.
-      this.preloadedComments = body.getComments();
-      this.preloadedComments.load("items");
       await context.sync();
 
       for (const mutate of mutations) {
@@ -395,7 +364,6 @@ export class WordDocumentAdapter implements DocumentAdapter {
       await context.sync();
     });
     // Clear caches so a subsequent load() starts fresh against the new state.
-    this.preloadedComments = null;
     this.loadedParagraphs = [];
     this.loadedImages = [];
     this.loadedTrackedChanges = [];

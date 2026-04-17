@@ -10,7 +10,7 @@ interface RoamingSettingsStub {
 }
 
 interface OfficeStub {
-  onReady: (cb?: () => void) => Promise<void>;
+  onReady: (cb: () => void) => Promise<void>;
   context: { roamingSettings: RoamingSettingsStub };
   AsyncResultStatus: { Succeeded: string; Failed: string };
 }
@@ -18,10 +18,8 @@ interface OfficeStub {
 const roamingData = new Map<string, unknown>();
 
 (globalThis as unknown as { Office: OfficeStub }).Office = {
-  onReady: (cb?: () => void) => {
-    // Support both overloads: Office.onReady() returning a Promise, and
-    // Office.onReady(cb) which fires the callback synchronously.
-    if (cb) cb();
+  onReady: (cb: () => void) => {
+    cb();
     return Promise.resolve();
   },
   context: {
