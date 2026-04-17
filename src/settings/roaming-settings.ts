@@ -14,13 +14,28 @@ const NAMESPACE = "bl-";
 
 export class OfficeRoamingSettingsStore implements SettingsStore {
   /**
-   * Safely resolve Office.context.roamingSettings. It can transiently become
-   * undefined under Word for Mac after a Word.run batch returns (and in other
-   * edge cases), so every access guards against that rather than throwing
-   * TypeError mid-flow. Callers then treat missing-store as "no persisted
-   * value" which is the correct graceful degradation for trial counters,
-   * theme preference, first-run flag, etc.
+   * In-memory cache of every value we've read or written this session.
+   *
+   * Rationale: Office.context.roamingSettings is flaky under Word for Mac —
+   * sometimes the object is present for reads but `saveAsync` fails silently,
+   * or the object is transiently undefined between ticks. If we relied only
+   * on roamingSettings, the counter would reset to 0 every click because
+   * saveAsync doesn't actually persist, and the next `get` returns `null`.
+   *
+   * Strategy:
+   *   - Every write goes to BOTH the in-memory map AND roamingSettings (if
+   *     available). In-memory is the source of truth during the session.
+   *   - Every read checks in-memory first. Falls through to roamingSettings
+   *     only if we've never seen the key this session (first read after boot).
+   *   - `saveAsync` attempts to flush to roamingSettings but tolerates failure.
+   *
+   * Result: the counter always advances correctly during a session, even when
+   * persistence is flaky. Users lose state across full Word restarts if the
+   * flakiness is permanent (worst case: an extra free clean on next launch —
+   * not a security issue for a $49 product).
    */
+  private memory = new Map<string, unknown>();
+
   private settings(): Office.RoamingSettings | null {
     const ctx = (
       globalThis as { Office?: { context?: { roamingSettings?: Office.RoamingSettings } } }
@@ -28,20 +43,29 @@ export class OfficeRoamingSettingsStore implements SettingsStore {
     return ctx?.roamingSettings ?? null;
   }
   get<T>(key: string): T | undefined {
+    const namespaced = NAMESPACE + key;
+    // In-memory wins — this is what makes the counter advance across clicks.
+    if (this.memory.has(namespaced)) {
+      return this.memory.get(namespaced) as T | undefined;
+    }
     const s = this.settings();
     if (!s) return undefined;
-    const raw = s.get(NAMESPACE + key) as unknown;
-    return raw === null || raw === undefined ? undefined : (raw as T);
+    const raw = s.get(namespaced) as unknown;
+    const value = raw === null || raw === undefined ? undefined : (raw as T);
+    if (value !== undefined) this.memory.set(namespaced, value);
+    return value;
   }
   set<T>(key: string, value: T): void {
+    const namespaced = NAMESPACE + key;
+    this.memory.set(namespaced, value);
     const s = this.settings();
-    if (!s) return;
-    s.set(NAMESPACE + key, value);
+    if (s) s.set(namespaced, value);
   }
   remove(key: string): void {
+    const namespaced = NAMESPACE + key;
+    this.memory.delete(namespaced);
     const s = this.settings();
-    if (!s) return;
-    s.remove(NAMESPACE + key);
+    if (s) s.remove(namespaced);
   }
   saveAsync(): Promise<void> {
     // Office.context.roamingSettings.saveAsync has a known flaky behavior where
