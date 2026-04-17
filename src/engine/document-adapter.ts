@@ -11,6 +11,7 @@ import type {
   ParagraphFormat,
   HeadingLevel,
 } from "./types";
+import { minimalReplacements } from "./text-diff";
 
 /**
  * Production DocumentAdapter backed by Office.js Word API.
@@ -51,7 +52,7 @@ export class WordDocumentAdapter implements DocumentAdapter {
   private loadedTrackedChanges: TrackedChangeInfo[] = [];
   private loadedHyperlinks: HyperlinkInfo[] = [];
   private loadedState: DocumentState | null = null;
-  private pendingMutations: Array<(ctx: Word.RequestContext) => void> = [];
+  private pendingMutations: Array<(ctx: Word.RequestContext) => void | Promise<void>> = [];
   // The comment collection pre-loaded by commit() before replaying mutations.
   // Closures reference `this.preloadedComments` instead of calling
   // `ctx.document.body.getComments()` because Office.js returns a fresh
@@ -247,11 +248,27 @@ export class WordDocumentAdapter implements DocumentAdapter {
     const paraIdxStr = match[1];
     if (paraIdxStr === undefined) return;
     const paraIdx = Number.parseInt(paraIdxStr, 10);
-    this.pendingMutations.push((ctx) => {
+    // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
+    const oldText = this.loadedParagraphs[paraIdx]?.text ?? "";
+    if (oldText === text) return;
+    const edits = minimalReplacements(oldText, text);
+    if (edits.length === 0) return;
+    this.pendingMutations.push(async (ctx) => {
       // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
       const p = ctx.document.body.paragraphs.items[paraIdx];
       if (!p) return;
-      p.insertText(text, Word.InsertLocation.replace);
+      // For each edit, use paragraph.search() to find the unique match and
+      // replace only that sub-range. This preserves per-run formatting on
+      // everything else in the paragraph.
+      for (const edit of edits) {
+        const results = p.search(edit.find, { matchCase: true, matchWildcards: false });
+        results.load("items");
+        await ctx.sync();
+        const first = results.items[0];
+        if (first) {
+          first.insertText(edit.replace, Word.InsertLocation.replace);
+        }
+      }
     });
   }
 
@@ -449,7 +466,7 @@ export class WordDocumentAdapter implements DocumentAdapter {
       await context.sync();
 
       for (const mutate of mutations) {
-        mutate(context);
+        await mutate(context);
       }
       await context.sync();
     });
