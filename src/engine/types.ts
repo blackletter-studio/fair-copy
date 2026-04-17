@@ -83,6 +83,14 @@ export interface Detector<T extends "tracked-changes" | "images" | "document-sta
 
 /** What a rule needs from the document. */
 export interface DocumentAdapter {
+  /**
+   * Optional: populate the adapter's cached view of the document. Production
+   * (Office.js) adapters need this because Word APIs require an async
+   * context.sync() before reads; the fake does all its work synchronously and
+   * can omit it. Orchestrators MUST call `await doc.load?.()` before invoking
+   * any getter on a production adapter.
+   */
+  load?(): Promise<void>;
   getAllParagraphs(): Paragraph[];
   getAllImages(): ImageInfo[];
   getAllTrackedChanges(): TrackedChangeInfo[];
