@@ -110,6 +110,8 @@ export interface DocumentAdapter {
   getHeadingStyle(ref: RangeRef): HeadingLevel;
   setTextFormat(ref: RangeRef, format: Partial<TextFormat>): void;
   setParagraphFormat(ref: RangeRef, format: Partial<ParagraphFormat>): void;
+  /** Replace the entire text of a paragraph range with new text. */
+  setParagraphText(ref: RangeRef, text: string): void;
   rejectTrackedChange(ref: RangeRef): void;
   removeImage(ref: RangeRef): void;
   removeComments(): void;

@@ -241,6 +241,20 @@ export class WordDocumentAdapter implements DocumentAdapter {
     });
   }
 
+  setParagraphText(ref: RangeRef, text: string): void {
+    const match = /^para-(\d+)$/.exec(ref.id);
+    if (!match) return;
+    const paraIdxStr = match[1];
+    if (paraIdxStr === undefined) return;
+    const paraIdx = Number.parseInt(paraIdxStr, 10);
+    this.pendingMutations.push((ctx) => {
+      // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
+      const p = ctx.document.body.paragraphs.items[paraIdx];
+      if (!p) return;
+      p.insertText(text, Word.InsertLocation.replace);
+    });
+  }
+
   rejectTrackedChange(ref: RangeRef): void {
     // M2 loads tracked changes as an empty list, so no rule queues a reject
     // today. When M2.5 populates loadedTrackedChanges with paragraph-scoped

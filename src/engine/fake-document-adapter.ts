@@ -16,6 +16,7 @@ export interface FakeMutation {
   op:
     | "setTextFormat"
     | "setParagraphFormat"
+    | "setParagraphText"
     | "rejectTrackedChange"
     | "removeImage"
     | "removeComments"
@@ -83,6 +84,15 @@ export class FakeDocumentAdapter implements DocumentAdapter {
   }
   setParagraphFormat(ref: RangeRef, format: Partial<ParagraphFormat>): void {
     this.mutations.push({ op: "setParagraphFormat", ref, payload: format });
+  }
+  setParagraphText(ref: RangeRef, text: string): void {
+    this.mutations.push({ op: "setParagraphText", ref, payload: text });
+    // Also mutate the in-memory paragraph so subsequent reads see the change.
+    const para = this.paragraphs.find((p) => p.ref.id === ref.id);
+    if (para) {
+      para.text = text;
+      if (para.runs[0]) para.runs[0].text = text;
+    }
   }
   rejectTrackedChange(ref: RangeRef): void {
     this.mutations.push({ op: "rejectTrackedChange", ref });
