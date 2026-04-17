@@ -650,19 +650,74 @@ export class WordDocumentAdapter implements DocumentAdapter {
     property: "spellingErrors" | "grammaticalErrors",
   ): Promise<Array<{ paragraphIndex: number; text: string; offset: number; length: number }>> {
     await this.waitForWordApi();
+    const tag = `[proof:${property}]`;
     const results: Array<{ paragraphIndex: number; text: string; offset: number; length: number }> =
       [];
     try {
       await Word.run(async (context) => {
         const doc = context.document;
-        // WordApiDesktop 1.4 property — not yet in our @types/office-js, so cast.
+        // WordApiDesktop 1.4 properties — not in our @types/office-js so cast.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- property shape documented by Microsoft
         const docAny = doc as any;
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, security/detect-object-injection -- property name is a TS-verified literal-union
+
+        // Diagnostic 1: does the property exist on the document proxy at all?
+        const rawProp: unknown = docAny[property];
+        // eslint-disable-next-line no-console
+        console.log(`${tag} property typeof=${typeof rawProp}, present=${rawProp != null}`);
+        if (!rawProp) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `${tag} property missing on Word.Document — requires WordApiDesktop 1.4. ` +
+              `Either your Word build is older OR the property is Windows-only. Returning [].`,
+          );
+          return;
+        }
+
+        // Diagnostic 2: has the proofing engine actually run on this doc?
+        // `isSpellingChecked` / `isGrammarChecked` are booleans that track
+        // whether the engine has processed the document. If false, the
+        // corresponding *Errors RangeCollection will be empty even when the
+        // user can see red/green squiggles (the display layer is decoupled
+        // from the API-exposed state).
+        const checkedProp =
+          property === "spellingErrors" ? "isSpellingChecked" : "isGrammarChecked";
+        const runMethod = property === "spellingErrors" ? "checkSpelling" : "checkGrammar";
+        // eslint-disable-next-line security/detect-object-injection
+        const checkedHandle: unknown = docAny[checkedProp];
+        // Properties on Office.js proxies need to be loaded before read.
+        if (checkedHandle != null) {
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+          doc.load(checkedProp);
+          await context.sync();
+          // eslint-disable-next-line security/detect-object-injection
+          const checked = docAny[checkedProp] as boolean | undefined;
+          // eslint-disable-next-line no-console
+          console.log(`${tag} ${checkedProp}=${String(checked)}`);
+          if (checked === false) {
+            // eslint-disable-next-line no-console
+            console.log(`${tag} proofing not yet run — calling ${runMethod}()`);
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+              docAny[runMethod]();
+              await context.sync();
+              // eslint-disable-next-line no-console
+              console.log(`${tag} ${runMethod}() completed`);
+            } catch (runErr) {
+              // eslint-disable-next-line no-console
+              console.warn(`${tag} ${runMethod}() threw:`, runErr);
+            }
+          }
+        } else {
+          // eslint-disable-next-line no-console
+          console.log(`${tag} ${checkedProp} not on proxy; skipping warm-up probe`);
+        }
+
+        // Re-read the property AFTER potential warm-up.
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, security/detect-object-injection
         const errors = docAny[property] as Word.RangeCollection | undefined;
         if (!errors) {
           // eslint-disable-next-line no-console
-          console.warn(`${property}: property missing — Word host may be < WordApiDesktop 1.4`);
+          console.warn(`${tag} property vanished after warm-up — giving up`);
           return;
         }
         errors.load("items");
@@ -672,10 +727,24 @@ export class WordDocumentAdapter implements DocumentAdapter {
         paragraphs.load("items");
         await context.sync();
 
+        // Diagnostic 3: how many raw errors did Word surface?
+        // eslint-disable-next-line no-console
+        console.log(
+          `${tag} post-sync: errors.items.length=${errors.items.length}, ` +
+            `paragraphs.items.length=${paragraphs.items.length}`,
+        );
+        if (errors.items.length === 0) {
+          // eslint-disable-next-line no-console
+          console.log(
+            `${tag} zero items after sync. Either the doc is clean OR the engine ` +
+              `still hasn't populated its API-exposed errors collection. If Word ` +
+              `visibly shows squiggles in the doc, this is the bug.`,
+          );
+          return;
+        }
+
         paragraphs.items.forEach((p) => p.load("text"));
         errors.items.forEach((err) => err.load("text"));
-        // For each error, grab its containing paragraph so we can resolve the
-        // caller's paragraph index even when an error text is ambiguous.
         const parentParas = errors.items.map((err) => err.paragraphs.getFirst());
         parentParas.forEach((p) => p.load("text"));
         await context.sync();
@@ -686,6 +755,8 @@ export class WordDocumentAdapter implements DocumentAdapter {
           if (!paraIdxByText.has(p.text)) paraIdxByText.set(p.text, i);
         });
 
+        let unmatchedParent = 0;
+        let unmatchedOffset = 0;
         for (let i = 0; i < errors.items.length; i++) {
           // eslint-disable-next-line security/detect-object-injection -- loop counter
           const err = errors.items[i];
@@ -695,9 +766,25 @@ export class WordDocumentAdapter implements DocumentAdapter {
           const errText = err.text;
           const paraText = parent.text;
           const paraIdx = paraIdxByText.get(paraText);
-          if (paraIdx === undefined) continue;
+          if (paraIdx === undefined) {
+            unmatchedParent++;
+            // eslint-disable-next-line no-console
+            console.log(
+              `${tag} no paragraph-index for err[${i}] "${errText}": ` +
+                `parent text "${paraText.slice(0, 60)}${paraText.length > 60 ? "…" : ""}" ` +
+                `not in our cached paragraphs`,
+            );
+            continue;
+          }
           const offset = paraText.indexOf(errText);
-          if (offset === -1) continue;
+          if (offset === -1) {
+            unmatchedOffset++;
+            // eslint-disable-next-line no-console
+            console.log(
+              `${tag} err[${i}] "${errText}" not found via indexOf in para-${paraIdx} text`,
+            );
+            continue;
+          }
           results.push({
             paragraphIndex: paraIdx,
             text: errText,
@@ -708,12 +795,13 @@ export class WordDocumentAdapter implements DocumentAdapter {
 
         // eslint-disable-next-line no-console
         console.log(
-          `${property}: mapped ${results.length}/${errors.items.length} Word errors to paragraphs`,
+          `${tag} mapped ${results.length}/${errors.items.length} errors ` +
+            `(unmatched parent=${unmatchedParent}, unmatched offset=${unmatchedOffset})`,
         );
       });
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.warn(`${property}: failed —`, err);
+      console.warn(`${tag} query failed:`, err);
     }
     return results;
   }
