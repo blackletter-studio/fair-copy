@@ -57,6 +57,12 @@ export interface TrackedChangeInfo {
   date: string; // ISO
 }
 
+export interface HyperlinkInfo {
+  ref: RangeRef;
+  url: string;
+  text: string;
+}
+
 export interface DocumentState {
   isMarkedFinal: boolean;
   isPasswordProtected: boolean;
@@ -75,6 +81,7 @@ export interface DocumentAdapter {
   getAllParagraphs(): Paragraph[];
   getAllImages(): ImageInfo[];
   getAllTrackedChanges(): TrackedChangeInfo[];
+  getAllHyperlinks(): HyperlinkInfo[];
   getDocumentState(): DocumentState;
   setTextFormat(ref: RangeRef, format: Partial<TextFormat>): void;
   setParagraphFormat(ref: RangeRef, format: Partial<ParagraphFormat>): void;
@@ -87,6 +94,7 @@ export interface DocumentAdapter {
     style: { type: "bullet" | "number"; markerStyle?: "simple"; level?: number } | null,
   ): void;
   setTableBorders(ref: RangeRef, borders: { style: "none" | "hairline" } | null): void;
+  removeSectionBreaks(): void;
   commit(): Promise<void>;
 }
 
