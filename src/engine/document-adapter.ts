@@ -9,6 +9,7 @@ import type {
   RangeRef,
   TextFormat,
   ParagraphFormat,
+  HeadingLevel,
 } from "./types";
 
 /**
@@ -175,6 +176,18 @@ export class WordDocumentAdapter implements DocumentAdapter {
       throw new Error("WordDocumentAdapter: call load() before getDocumentState().");
     }
     return this.loadedState;
+  }
+
+  getHeadingStyle(ref: RangeRef): HeadingLevel {
+    const match = /^para-(\d+)$/.exec(ref.id);
+    if (!match) return null;
+    const paraIdxStr = match[1];
+    if (paraIdxStr === undefined) return null;
+    const paraIdx = Number.parseInt(paraIdxStr, 10);
+    // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
+    const para = this.loadedParagraphs[paraIdx];
+    if (!para) return null;
+    return mapHeadingStyleName(para.paragraphFormat.styleName);
   }
 
   setTextFormat(ref: RangeRef, format: Partial<TextFormat>): void {
@@ -439,5 +452,30 @@ function unmapAlignment(a: ParagraphFormat["alignment"]): Word.Alignment {
       return Word.Alignment.justified;
     default:
       return Word.Alignment.left;
+  }
+}
+
+function mapHeadingStyleName(styleName: string | undefined): HeadingLevel {
+  if (!styleName) return null;
+  const normalized = styleName.trim().toLowerCase();
+  if (normalized === "title") return "title";
+  const match = /^heading\s*([1-6])$/.exec(normalized);
+  if (!match) return null;
+  const level = match[1];
+  switch (level) {
+    case "1":
+      return "heading-1";
+    case "2":
+      return "heading-2";
+    case "3":
+      return "heading-3";
+    case "4":
+      return "heading-4";
+    case "5":
+      return "heading-5";
+    case "6":
+      return "heading-6";
+    default:
+      return null;
   }
 }
