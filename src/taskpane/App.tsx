@@ -65,6 +65,13 @@ export function App({ createAdapter }: AppProps = {}): ReactElement {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      // main.tsx awaits Office.onReady before the first render, but on HMR
+      // remounts (and occasionally on cold start under Word for Mac) the
+      // useEffect body can execute before `Office.context.roamingSettings`
+      // is populated, throwing `TypeError: undefined is not an object`.
+      // Re-awaiting is idempotent and cheap.
+      await Office.onReady();
+
       const remainingCount = await remainingFreeCleans(settingsStore);
       const isDone = await isTrialExhausted(settingsStore);
       const firstRunSeen = settingsStore.get<string>("first-run-seen") === "true";
