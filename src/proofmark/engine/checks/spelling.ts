@@ -3,25 +3,18 @@ import type { Check, CheckSettings, Finding, Region } from "../types";
 import { suggestCorrections } from "../spelling/spell-checker";
 
 /**
- * Spelling check — surfaces Word's own proofing errors as single-word findings.
+ * Spelling check — surfaces Word's own spelling errors.
  *
  * ## Why Word (not nspell) owns detection
  * We used to scan with nspell + `dictionary-en` locally. Users complained that
  * we flagged words Word itself accepted (compounds like "How-To", domain
  * proper nouns, etc.) because our SCOWL-derived corpus is smaller than Word's
- * proprietary one. The Option-B pivot moves detection to Word's engine via
- * `DocumentAdapter.getProofingErrorRanges()` for perfect behavioral parity.
+ * proprietary one. Detection now comes from `Word.Document.spellingErrors`
+ * (WordApiDesktop 1.4) via `DocumentAdapter.getSpellingErrorRanges()`, so the
+ * Spelling tab matches Word's own red-squiggle behavior exactly.
  *
  * nspell stays alive purely to generate suggestions for the Apply button —
  * Office.js doesn't expose a suggestions API.
- *
- * ## Spelling vs. grammar classification
- * `getProofingErrorRanges()` returns a flat list; it doesn't label spelling vs.
- * grammar. We classify by word count:
- *   - single word (no internal whitespace) → Spelling tab (this check)
- *   - multiple words → Grammar tab (grammarCheck)
- * Matches Word's behavior in ~95% of cases; edge cases like "its/it's" may
- * appear in the "wrong" tab but both tabs are user-reviewable.
  *
  * ## Custom dictionary as suppression list
  * Office.js can't write to Word's custom dictionary, so our "Add word" button
@@ -58,10 +51,9 @@ export async function runSpelling(
   doc: DocumentAdapter,
   customDict: readonly string[],
 ): Promise<Finding[]> {
-  // Older adapters (pre-M3.5) may not implement getProofingErrorRanges.
-  // In that case we can't surface spelling at all from Word — return empty.
-  if (typeof doc.getProofingErrorRanges !== "function") return [];
-  const rawErrors = await doc.getProofingErrorRanges();
+  // Older adapters / older Word hosts may not implement this method.
+  if (typeof doc.getSpellingErrorRanges !== "function") return [];
+  const rawErrors = await doc.getSpellingErrorRanges();
   if (rawErrors.length === 0) return [];
 
   const paragraphs = doc.getAllParagraphs();
@@ -69,9 +61,6 @@ export async function runSpelling(
   const findings: Finding[] = [];
 
   for (const err of rawErrors) {
-    // Classify: single-word → spelling; multi-word → grammar owns it.
-    if (/\s/.test(err.text)) continue;
-
     // Suppression list: user has added this word to their custom dictionary.
     if (customSet.has(err.text.toLowerCase())) continue;
 

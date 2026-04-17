@@ -128,15 +128,23 @@ export interface DocumentAdapter {
   replaceRange(ref: RangeRef, newText: string): void;
   commit(): Promise<void>;
   /**
-   * Optional: return all proofing errors (spelling + grammar) from the host's
-   * own proofing engine. Each entry includes the zero-based paragraph index,
-   * flagged text, character offset within that paragraph, and the run length.
+   * Optional: return spelling errors from the host's proofing engine. Each
+   * entry includes the zero-based paragraph index, flagged text, character
+   * offset within that paragraph, and the run length.
    *
-   * Implementations backed by older Office.js builds that lack
-   * `Paragraph.getProofingErrors()` should omit this method entirely (leave it
-   * undefined) — callers guard with `typeof doc.getProofingErrorRanges !== "function"`.
+   * Backed by `Word.Document.spellingErrors` (WordApiDesktop 1.4+). Older
+   * hosts should leave this method undefined — callers guard with
+   * `typeof doc.getSpellingErrorRanges !== "function"`.
    */
-  getProofingErrorRanges?(): Promise<
+  getSpellingErrorRanges?(): Promise<
+    Array<{ paragraphIndex: number; text: string; offset: number; length: number }>
+  >;
+  /**
+   * Optional: return grammar errors from the host's proofing engine. Same
+   * shape as `getSpellingErrorRanges`. Backed by
+   * `Word.Document.grammaticalErrors` (WordApiDesktop 1.4+).
+   */
+  getGrammarErrorRanges?(): Promise<
     Array<{ paragraphIndex: number; text: string; offset: number; length: number }>
   >;
 }

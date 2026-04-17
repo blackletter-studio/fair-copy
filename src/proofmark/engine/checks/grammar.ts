@@ -2,16 +2,12 @@ import type { DocumentAdapter } from "../../../engine/types";
 import type { Check, CheckSettings, Finding, Region } from "../types";
 
 /**
- * Grammar check — surfaces Word's own proofing errors that span multiple
- * words. Spelling findings (single-word errors) are owned by spellingCheck.
+ * Grammar check — surfaces Word's own grammar errors.
  *
- * ## Classification
- * Office.js's `getProofingErrorRanges()` returns a flat list with no built-in
- * spelling-vs-grammar label. We split by word count:
- *   - single word (no whitespace) → spelling
- *   - multiple words (any whitespace) → grammar (this check)
- * This matches Word's behavior ~95% of the time. Edge cases like "its/it's"
- * land in spelling, which is acceptable — both tabs are user-reviewable.
+ * Detection comes from `Word.Document.grammaticalErrors` (WordApiDesktop 1.4)
+ * via `DocumentAdapter.getGrammarErrorRanges()`. Word labels spelling and
+ * grammar separately, so this check no longer has to classify — it just
+ * passes Word's grammar-flagged ranges through.
  *
  * ## Why not applicable
  * Grammar corrections usually require sentence-level judgment ("should this
@@ -40,17 +36,14 @@ export async function runGrammar(
   doc: DocumentAdapter,
   _customDict: readonly string[],
 ): Promise<Finding[]> {
-  if (typeof doc.getProofingErrorRanges !== "function") return [];
-  const rawErrors = await doc.getProofingErrorRanges();
+  if (typeof doc.getGrammarErrorRanges !== "function") return [];
+  const rawErrors = await doc.getGrammarErrorRanges();
   if (rawErrors.length === 0) return [];
 
   const paragraphs = doc.getAllParagraphs();
   const findings: Finding[] = [];
 
   for (const err of rawErrors) {
-    // Classify: multi-word → grammar; single-word → spelling owns it.
-    if (!/\s/.test(err.text)) continue;
-
     // eslint-disable-next-line security/detect-object-injection -- paragraphIndex comes from adapter we control
     const para = paragraphs[err.paragraphIndex];
     if (!para) continue;

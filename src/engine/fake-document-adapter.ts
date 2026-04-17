@@ -35,7 +35,13 @@ export class FakeDocumentAdapter implements DocumentAdapter {
   committed = false;
   hyperlinks: HyperlinkInfo[] = [];
   headingStyles: Map<string, HeadingLevel> = new Map();
-  private _proofingErrors: Array<{
+  private _spellingErrors: Array<{
+    paragraphIndex: number;
+    text: string;
+    offset: number;
+    length: number;
+  }> = [];
+  private _grammarErrors: Array<{
     paragraphIndex: number;
     text: string;
     offset: number;
@@ -81,19 +87,47 @@ export class FakeDocumentAdapter implements DocumentAdapter {
   }
 
   /**
-   * Stub helper for tests: seed the proofing errors that
-   * `getProofingErrorRanges()` will return.
+   * Stub helper for tests: seed the spelling errors that
+   * `getSpellingErrorRanges()` will return.
+   */
+  setSpellingErrors(
+    errors: Array<{ paragraphIndex: number; text: string; offset: number; length: number }>,
+  ): void {
+    this._spellingErrors = errors;
+  }
+
+  /**
+   * Stub helper for tests: seed the grammar errors that
+   * `getGrammarErrorRanges()` will return.
+   */
+  setGrammarErrors(
+    errors: Array<{ paragraphIndex: number; text: string; offset: number; length: number }>,
+  ): void {
+    this._grammarErrors = errors;
+  }
+
+  /**
+   * Back-compat for tests that used the pre-WordApiDesktop-1.4 single-list
+   * API. Splits by whitespace: multi-word → grammar, single-word → spelling.
+   * Matches the classifier we used to hand-roll in the checks.
    */
   setProofingErrors(
     errors: Array<{ paragraphIndex: number; text: string; offset: number; length: number }>,
   ): void {
-    this._proofingErrors = errors;
+    this._spellingErrors = errors.filter((e) => !/\s/.test(e.text));
+    this._grammarErrors = errors.filter((e) => /\s/.test(e.text));
   }
 
-  getProofingErrorRanges(): Promise<
+  getSpellingErrorRanges(): Promise<
     Array<{ paragraphIndex: number; text: string; offset: number; length: number }>
   > {
-    return Promise.resolve(this._proofingErrors);
+    return Promise.resolve(this._spellingErrors);
+  }
+
+  getGrammarErrorRanges(): Promise<
+    Array<{ paragraphIndex: number; text: string; offset: number; length: number }>
+  > {
+    return Promise.resolve(this._grammarErrors);
   }
   getDocumentState(): DocumentState {
     return this.state;

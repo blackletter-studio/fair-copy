@@ -26,6 +26,12 @@ import { DismissRegular } from "@fluentui/react-icons";
  */
 
 const useStyles = makeStyles({
+  help: {
+    display: "block",
+    color: tokens.colorNeutralForeground3,
+    fontSize: tokens.fontSizeBase200,
+    paddingBottom: tokens.spacingVerticalXS,
+  },
   panel: {
     display: "flex",
     flexWrap: "wrap",
@@ -65,6 +71,10 @@ export function CustomWordsManager({
       <AccordionItem value="custom-dict">
         <AccordionHeader>Custom dictionary ({words.length})</AccordionHeader>
         <AccordionPanel>
+          <span className={styles.help}>
+            Proofmark skips these words. Word's own spellcheck is unaffected — to add a word to
+            Word's dictionary, right-click it in the document.
+          </span>
           <div className={styles.panel}>
             {words.map((word) => (
               <span key={word} className={styles.chip}>

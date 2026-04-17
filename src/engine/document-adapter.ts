@@ -289,14 +289,17 @@ export class WordDocumentAdapter implements DocumentAdapter {
       }
       // Try targeted search-and-replace for each minimal edit. This preserves
       // per-run formatting on everything else in the paragraph. If search
-      // throws (e.g., special chars in the find string, Word for Mac quirks),
-      // fall back to whole-paragraph replace so Apply at least does something.
+      // misses any edit OR throws (short search strings like "3" are flaky on
+      // Word for Mac), fall back to whole-paragraph replace. That flattens
+      // formatting, but a formatting flatten is a much better failure mode
+      // than a silent no-op — the user can SEE it worked.
       try {
         // eslint-disable-next-line no-console
         console.log(
           `setParagraphText: applying ${edits.length} targeted edit(s) to para-${paraIdx}`,
           edits.map((e) => ({ findLen: e.find.length, replaceLen: e.replace.length })),
         );
+        let allEditsMatched = true;
         for (const edit of edits) {
           const results = p.search(edit.find, { matchCase: true });
           results.load("items");
@@ -307,9 +310,17 @@ export class WordDocumentAdapter implements DocumentAdapter {
           } else {
             // eslint-disable-next-line no-console
             console.warn(
-              `setParagraphText: search found no match for find-string (len=${edit.find.length}) in para-${paraIdx}; skipping`,
+              `setParagraphText: search found no match for "${edit.find}" in para-${paraIdx}`,
             );
+            allEditsMatched = false;
           }
+        }
+        if (!allEditsMatched) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `setParagraphText: some edits didn't match — falling back to whole-paragraph replace for para-${paraIdx}. Formatting may flatten.`,
+          );
+          p.insertText(text, Word.InsertLocation.replace);
         }
       } catch (err) {
         // eslint-disable-next-line no-console
@@ -598,83 +609,111 @@ export class WordDocumentAdapter implements DocumentAdapter {
   }
 
   /**
-   * Returns all proofing errors (spelling + grammar) from Word's own engine.
-   * Each entry carries the paragraph index, the flagged text, and its character
-   * offset + length within that paragraph.
+   * Returns all spelling errors from Word's own engine, as paragraph-scoped
+   * ranges with character offsets. Backed by `Word.Document.spellingErrors`
+   * (WordApiDesktop 1.4+). On older hosts the property is undefined; the outer
+   * try/catch logs a warning and returns [].
+   */
+  async getSpellingErrorRanges(): Promise<
+    Array<{ paragraphIndex: number; text: string; offset: number; length: number }>
+  > {
+    return this.getErrorRangesFromDocumentProperty("spellingErrors");
+  }
+
+  /**
+   * Returns all grammar errors from Word's own engine. Same shape as
+   * `getSpellingErrorRanges`. Backed by `Word.Document.grammaticalErrors`
+   * (WordApiDesktop 1.4+).
+   */
+  async getGrammarErrorRanges(): Promise<
+    Array<{ paragraphIndex: number; text: string; offset: number; length: number }>
+  > {
+    return this.getErrorRangesFromDocumentProperty("grammaticalErrors");
+  }
+
+  /**
+   * Shared implementation for the two proofing-error queries. Office.js
+   * exposes spelling + grammar errors as two separate `RangeCollection`s on
+   * `Word.Document`; the only differences between the two code paths are the
+   * property name and the logging tag.
    *
-   * Uses `Paragraph.getProofingErrors()` — available in Word Desktop 16.0.17328+
-   * and Word Online (2024+). On older builds this method may throw; the outer
-   * try/catch returns [] in that case.
+   * Mapping each error range back to our paragraph index uses the range's
+   * parent paragraph + a text-match lookup. Office.js `Range` doesn't expose
+   * a global character offset, so a text match is the pragmatic fallback.
+   * If two paragraphs have identical text, the first match wins — acceptable
+   * for realistic legal documents.
    *
    * Not covered by unit tests (Office.js can't be mocked); exercised by the
    * Playwright E2E suite.
    */
-  async getProofingErrorRanges(): Promise<
-    Array<{ paragraphIndex: number; text: string; offset: number; length: number }>
-  > {
+  private async getErrorRangesFromDocumentProperty(
+    property: "spellingErrors" | "grammaticalErrors",
+  ): Promise<Array<{ paragraphIndex: number; text: string; offset: number; length: number }>> {
     await this.waitForWordApi();
     const results: Array<{ paragraphIndex: number; text: string; offset: number; length: number }> =
       [];
     try {
       await Word.run(async (context) => {
-        const body = context.document.body;
+        const doc = context.document;
+        // WordApiDesktop 1.4 property — not yet in our @types/office-js, so cast.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- property shape documented by Microsoft
+        const docAny = doc as any;
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, security/detect-object-injection -- property name is a TS-verified literal-union
+        const errors = docAny[property] as Word.RangeCollection | undefined;
+        if (!errors) {
+          // eslint-disable-next-line no-console
+          console.warn(`${property}: property missing — Word host may be < WordApiDesktop 1.4`);
+          return;
+        }
+        errors.load("items");
+
+        const body = doc.body;
         const paragraphs = body.paragraphs;
         paragraphs.load("items");
         await context.sync();
 
-        // For each paragraph, load its proofing errors.
-        const perParaErrors: Array<{
-          paraIdx: number;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- getProofingErrors() may not be in older @types/office-js
-          errors: any;
-        }> = [];
-        for (let i = 0; i < paragraphs.items.length; i++) {
-          // eslint-disable-next-line security/detect-object-injection -- i is a loop counter
-          const p = paragraphs.items[i];
-          if (!p) continue;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call -- getProofingErrors not in older types
-          const errs = (p as any).getProofingErrors();
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- same
-          errs.load("items");
-          perParaErrors.push({ paraIdx: i, errors: errs });
-        }
+        paragraphs.items.forEach((p) => p.load("text"));
+        errors.items.forEach((err) => err.load("text"));
+        // For each error, grab its containing paragraph so we can resolve the
+        // caller's paragraph index even when an error text is ambiguous.
+        const parentParas = errors.items.map((err) => err.paragraphs.getFirst());
+        parentParas.forEach((p) => p.load("text"));
         await context.sync();
 
-        // Load text for each error range.
-        for (const { errors } of perParaErrors) {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- any[]
-          for (const err of errors.items) {
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- any
-            err.load("text");
-          }
-        }
-        await context.sync();
+        // Build paragraph-text → first-matching-index map.
+        const paraIdxByText = new Map<string, number>();
+        paragraphs.items.forEach((p, i) => {
+          if (!paraIdxByText.has(p.text)) paraIdxByText.set(p.text, i);
+        });
 
-        // Build offset+length by searching paragraph text for each error text.
-        for (const { paraIdx, errors } of perParaErrors) {
+        for (let i = 0; i < errors.items.length; i++) {
           // eslint-disable-next-line security/detect-object-injection -- loop counter
-          const p = paragraphs.items[paraIdx];
-          if (!p) continue;
-          const paraText = p.text;
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- any[]
-          for (const err of errors.items) {
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access -- any
-            const errText: string = err.text;
-            const offset = paraText.indexOf(errText);
-            if (offset === -1) continue;
-            results.push({
-              paragraphIndex: paraIdx,
-              text: errText,
-              offset,
-              length: errText.length,
-            });
-          }
+          const err = errors.items[i];
+          // eslint-disable-next-line security/detect-object-injection -- loop counter
+          const parent = parentParas[i];
+          if (!err || !parent) continue;
+          const errText = err.text;
+          const paraText = parent.text;
+          const paraIdx = paraIdxByText.get(paraText);
+          if (paraIdx === undefined) continue;
+          const offset = paraText.indexOf(errText);
+          if (offset === -1) continue;
+          results.push({
+            paragraphIndex: paraIdx,
+            text: errText,
+            offset,
+            length: errText.length,
+          });
         }
+
+        // eslint-disable-next-line no-console
+        console.log(
+          `${property}: mapped ${results.length}/${errors.items.length} Word errors to paragraphs`,
+        );
       });
     } catch (err) {
-      // Older Office.js builds that lack getProofingErrors() will throw here.
       // eslint-disable-next-line no-console
-      console.warn("getProofingErrorRanges: not supported in this Word version —", err);
+      console.warn(`${property}: failed —`, err);
     }
     return results;
   }

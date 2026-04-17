@@ -1,5 +1,5 @@
 import React from "react";
-import { Button, Text, makeStyles, tokens } from "@fluentui/react-components";
+import { Button, Text, Tooltip, makeStyles, tokens } from "@fluentui/react-components";
 import type { Finding } from "../engine/types";
 
 const useStyles = makeStyles({
@@ -85,14 +85,20 @@ export function FindingCard({
             </Button>
           )}
           {finding.checkName === "spelling" && onAddToDictionary !== undefined && (
-            <Button
-              appearance="subtle"
-              size="small"
-              aria-label="Add to dictionary"
-              onClick={() => onAddToDictionary(finding)}
+            <Tooltip
+              content="Skips this word in Proofmark going forward. Word's own spellcheck still flags it — right-click the word in the document to add it to Word's dictionary."
+              relationship="description"
+              withArrow
             >
-              Add word
-            </Button>
+              <Button
+                appearance="subtle"
+                size="small"
+                aria-label="Add to dictionary"
+                onClick={() => onAddToDictionary(finding)}
+              >
+                Add word
+              </Button>
+            </Tooltip>
           )}
           <Button appearance="subtle" size="small" onClick={() => onDismiss(finding)}>
             Dismiss

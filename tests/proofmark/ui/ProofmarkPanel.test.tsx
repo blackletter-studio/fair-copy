@@ -244,27 +244,36 @@ describe("ProofmarkPanel — tabbed UI", () => {
   });
 });
 
-describe("FakeDocumentAdapter — setProofingErrors stub", () => {
-  it("returns empty array by default", async () => {
+describe("FakeDocumentAdapter — proofing-error stubs", () => {
+  it("returns empty arrays by default", async () => {
     const adapter = new FakeDocumentAdapter([]);
-    const errors = await adapter.getProofingErrorRanges();
-    expect(errors).toHaveLength(0);
+    expect(await adapter.getSpellingErrorRanges()).toHaveLength(0);
+    expect(await adapter.getGrammarErrorRanges()).toHaveLength(0);
   });
 
-  it("returns seeded errors after setProofingErrors", async () => {
+  it("setSpellingErrors seeds getSpellingErrorRanges", async () => {
     const adapter = new FakeDocumentAdapter([]);
-    adapter.setProofingErrors([{ paragraphIndex: 0, text: "foo", offset: 0, length: 3 }]);
-    const errors = await adapter.getProofingErrorRanges();
+    adapter.setSpellingErrors([{ paragraphIndex: 0, text: "foo", offset: 0, length: 3 }]);
+    const errors = await adapter.getSpellingErrorRanges();
     expect(errors).toHaveLength(1);
     expect(errors[0]).toMatchObject({ paragraphIndex: 0, text: "foo", offset: 0, length: 3 });
   });
 
-  it("can be called multiple times; last call wins", async () => {
+  it("setGrammarErrors seeds getGrammarErrorRanges", async () => {
     const adapter = new FakeDocumentAdapter([]);
-    adapter.setProofingErrors([{ paragraphIndex: 0, text: "foo", offset: 0, length: 3 }]);
-    adapter.setProofingErrors([{ paragraphIndex: 1, text: "bar", offset: 4, length: 3 }]);
-    const errors = await adapter.getProofingErrorRanges();
+    adapter.setGrammarErrors([{ paragraphIndex: 0, text: "there their", offset: 0, length: 11 }]);
+    const errors = await adapter.getGrammarErrorRanges();
     expect(errors).toHaveLength(1);
-    expect(errors[0]!.text).toBe("bar");
+    expect(errors[0]!.text).toBe("there their");
+  });
+
+  it("back-compat setProofingErrors routes by word-count (single→spelling, multi→grammar)", async () => {
+    const adapter = new FakeDocumentAdapter([]);
+    adapter.setProofingErrors([
+      { paragraphIndex: 0, text: "wittnes", offset: 4, length: 7 },
+      { paragraphIndex: 1, text: "there their", offset: 0, length: 11 },
+    ]);
+    expect(await adapter.getSpellingErrorRanges()).toHaveLength(1);
+    expect(await adapter.getGrammarErrorRanges()).toHaveLength(1);
   });
 });
