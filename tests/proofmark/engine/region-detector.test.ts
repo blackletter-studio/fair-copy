@@ -85,3 +85,36 @@ describe("detectRegions — definitions", () => {
     expect(detectRegions(adapter).find((r) => r.name === "definitions")).toBeUndefined();
   });
 });
+
+describe("detectRegions — indemnification", () => {
+  it("detects indemnification section under a heading", () => {
+    const adapter = new FakeDocumentAdapter([
+      FakeDocumentAdapter.makeParagraph("h1", "Indemnification", { headingStyle: "heading-1" }),
+      FakeDocumentAdapter.makeParagraph("p1", "Each party shall indemnify..."),
+      FakeDocumentAdapter.makeParagraph("p2", "Indemnification survives termination."),
+      FakeDocumentAdapter.makeParagraph("h2", "Governing Law", { headingStyle: "heading-1" }),
+    ]);
+    const regions = detectRegions(adapter);
+    const indem = regions.find((r) => r.name === "indemnification");
+    expect(indem).toBeDefined();
+    expect(indem?.range.map((r) => r.id)).toEqual(["p1", "p2"]);
+    expect(indem?.confidence).toBe("high");
+  });
+
+  it("matches 'Indemnity' and 'Indemnities' variants", () => {
+    const adapter = new FakeDocumentAdapter([
+      FakeDocumentAdapter.makeParagraph("h1", "Indemnity", { headingStyle: "heading-2" }),
+      FakeDocumentAdapter.makeParagraph("p1", "Body."),
+    ]);
+    const regions = detectRegions(adapter);
+    expect(regions.find((r) => r.name === "indemnification")).toBeDefined();
+  });
+
+  it("does not detect when no indemnification heading is present", () => {
+    const adapter = new FakeDocumentAdapter([
+      FakeDocumentAdapter.makeParagraph("h1", "Warranties", { headingStyle: "heading-1" }),
+      FakeDocumentAdapter.makeParagraph("p1", "Body."),
+    ]);
+    expect(detectRegions(adapter).find((r) => r.name === "indemnification")).toBeUndefined();
+  });
+});
