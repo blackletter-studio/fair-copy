@@ -4,6 +4,7 @@ import type {
   Paragraph,
   ImageInfo,
   TrackedChangeInfo,
+  HyperlinkInfo,
   DocumentState,
   RangeRef,
   TextFormat,
@@ -28,6 +29,12 @@ export class WordDocumentAdapter implements DocumentAdapter {
 
   getAllTrackedChanges(): TrackedChangeInfo[] {
     throw new Error("WordDocumentAdapter.getAllTrackedChanges: implement in M2 Task 8");
+  }
+
+  getAllHyperlinks(): HyperlinkInfo[] {
+    throw new Error(
+      "WordDocumentAdapter.getAllHyperlinks not yet implemented; implement in M2 Task 8",
+    );
   }
 
   getDocumentState(): DocumentState {
@@ -67,6 +74,12 @@ export class WordDocumentAdapter implements DocumentAdapter {
 
   setTableBorders(_ref: RangeRef, _borders: { style: "none" | "hairline" } | null): void {
     throw new Error("WordDocumentAdapter.setTableBorders: implement in M2 Task 8");
+  }
+
+  removeSectionBreaks(): void {
+    throw new Error(
+      "WordDocumentAdapter.removeSectionBreaks not yet implemented; implement in M2 Task 8",
+    );
   }
 
   async commit(): Promise<void> {

@@ -4,6 +4,7 @@ import type {
   TextRun,
   ImageInfo,
   TrackedChangeInfo,
+  HyperlinkInfo,
   DocumentState,
   RangeRef,
   TextFormat,
@@ -19,7 +20,8 @@ export interface FakeMutation {
     | "removeComments"
     | "stripHyperlinkFormatting"
     | "setListStyle"
-    | "setTableBorders";
+    | "setTableBorders"
+    | "removeSectionBreaks";
   ref?: RangeRef;
   payload?: unknown;
 }
@@ -27,6 +29,7 @@ export interface FakeMutation {
 export class FakeDocumentAdapter implements DocumentAdapter {
   mutations: FakeMutation[] = [];
   committed = false;
+  hyperlinks: HyperlinkInfo[] = [];
 
   constructor(
     public paragraphs: Paragraph[] = [],
@@ -48,6 +51,12 @@ export class FakeDocumentAdapter implements DocumentAdapter {
   }
   getAllTrackedChanges(): TrackedChangeInfo[] {
     return this.trackedChanges;
+  }
+  getAllHyperlinks(): HyperlinkInfo[] {
+    return this.hyperlinks;
+  }
+  setHyperlinks(links: HyperlinkInfo[]): void {
+    this.hyperlinks = links;
   }
   getDocumentState(): DocumentState {
     return this.state;
@@ -79,6 +88,9 @@ export class FakeDocumentAdapter implements DocumentAdapter {
   }
   setTableBorders(ref: RangeRef, borders: { style: "none" | "hairline" } | null): void {
     this.mutations.push({ op: "setTableBorders", ref, payload: borders });
+  }
+  removeSectionBreaks(): void {
+    this.mutations.push({ op: "removeSectionBreaks" });
   }
 
   commit(): Promise<void> {
