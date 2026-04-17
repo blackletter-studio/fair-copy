@@ -60,4 +60,21 @@ describe("verifyToken", () => {
     expect(await verifyToken("not.a.jwt", publicPem)).toBeNull();
     expect(await verifyToken("", publicPem)).toBeNull();
   });
+
+  it("rejects a signed token with an unknown role", async () => {
+    const { token, publicPem } = await makeToken({ role: "superuser" });
+    expect(await verifyToken(token, publicPem)).toBeNull();
+  });
+
+  it("rejects a signed token whose features array contains unknown values", async () => {
+    const { token, publicPem } = await makeToken({ features: ["fair-copy", "wizard"] });
+    expect(await verifyToken(token, publicPem)).toBeNull();
+  });
+
+  it("rejects a signed token whose features array contains non-strings", async () => {
+    const { token, publicPem } = await makeToken({
+      features: [42 as unknown as string],
+    });
+    expect(await verifyToken(token, publicPem)).toBeNull();
+  });
 });

@@ -14,6 +14,27 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 /**
+ * Constant-time string comparison. Early-returns on length mismatch, then
+ * walks the full length of the longer buffer OR-ing XOR'd byte differences
+ * so the work is independent of where a mismatch occurs.
+ *
+ * Bearer-token comparison with `===` leaks the number of matching leading
+ * bytes via execution time. The attack surface on a single-admin endpoint
+ * is small but the fix is trivial — preferred over a hope-based argument.
+ */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  const enc = new TextEncoder();
+  const ab = enc.encode(a);
+  const bb = enc.encode(b);
+  let diff = 0;
+  for (let i = 0; i < ab.length; i++) {
+    diff |= (ab[i] ?? 0) ^ (bb[i] ?? 0);
+  }
+  return diff === 0;
+}
+
+/**
  * POST /api/mint
  *
  * Authenticated via `Authorization: Bearer <MINT_API_KEY>`. Mints one or
@@ -25,7 +46,7 @@ export async function mint(request: Request, env: Env): Promise<Response> {
   const auth = request.headers.get("authorization");
   if (!auth) return jsonResponse({ error: "Missing authorization" }, 401);
   const token = auth.replace(/^Bearer\s+/, "");
-  if (token !== env.MINT_API_KEY) {
+  if (!timingSafeEqual(token, env.MINT_API_KEY)) {
     return jsonResponse({ error: "Forbidden" }, 403);
   }
 

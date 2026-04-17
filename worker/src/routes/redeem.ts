@@ -84,7 +84,13 @@ export async function redeem(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ token });
   }
 
-  // First-redeem path — mint a license id, mark the code consumed, sign JWT.
+  // First-redeem path. Cloudflare KV has no native CAS — two simultaneous
+  // first-redeem requests can both see `consumed:false`, each mint a unique
+  // `licenseId`, and race on the `putCode` write. Whoever writes last owns
+  // the code. To avoid shipping two valid JWTs for one code, we re-read
+  // after our write and verify we actually won the race. If we didn't, we
+  // delete our orphan license record and either reissue with the winner's
+  // `sub` (when their email matches ours) or return 409.
   const licenseId = `lic_${randomUuid()}`;
   const updatedRecord: CodeRecord = {
     ...record,
@@ -94,6 +100,31 @@ export async function redeem(request: Request, env: Env): Promise<Response> {
     consumedByEmail: normalizedEmail,
   };
   await putCode(env.LICENSE_CODES, hash, updatedRecord);
+
+  const winner = await getCode(env.LICENSE_CODES, hash);
+  if (winner && winner.consumedBy && winner.consumedBy !== licenseId) {
+    // Lost the race. Our license record in CONSUMED_LICENSES is orphaned.
+    // The winner's record is canonical; collapse to theirs.
+    if (winner.consumedByEmail === normalizedEmail && winner.consumedBy !== null) {
+      const token = await signLicenseToken(env.ED25519_PRIVATE_KEY, {
+        sub: winner.consumedBy,
+        email: normalizedEmail,
+        role: winner.role,
+        features: ["fair-copy"],
+        expiresAt: computeExpiry(winner.role, winner, now),
+        jti: randomUuid(),
+      });
+      return jsonResponse({ token });
+    }
+    return jsonResponse(
+      {
+        error: "This code was redeemed by a different email. Contact support.",
+      },
+      409,
+    );
+  }
+
+  // We won (or were uncontested). Write the license record and sign a token.
   const license: LicenseRecord = {
     licenseId,
     email: normalizedEmail,

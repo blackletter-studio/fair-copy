@@ -65,6 +65,22 @@ if (!res.ok) {
 }
 const body = (await res.json()) as { codes: string[] };
 
+/**
+ * RFC-4180 CSV field escaping + spreadsheet-formula-injection defense.
+ *
+ * - Embedded double-quotes are doubled.
+ * - Fields containing comma, quote, or newline are wrapped in quotes.
+ * - If the field starts with `=`, `+`, `-`, or `@`, prepend a single quote
+ *   so Excel/Numbers won't interpret it as a formula on file open.
+ */
+function csvEscape(raw: string | undefined | null): string {
+  const value = raw ?? "";
+  const sanitized = /^[=+\-@]/.test(value) ? `'${value}` : value;
+  const needsQuotes = /[",\n\r]/.test(sanitized);
+  const escaped = sanitized.replace(/"/g, '""');
+  return needsQuotes ? `"${escaped}"` : escaped;
+}
+
 const logPath = join(homedir(), ".fair-copy", "mint-log.csv");
 mkdirSync(dirname(logPath), { recursive: true });
 if (!existsSync(logPath)) {
@@ -72,10 +88,14 @@ if (!existsSync(logPath)) {
 }
 const timestamp = new Date().toISOString();
 for (const code of body.codes) {
-  appendFileSync(
-    logPath,
-    `${timestamp},${values.role},${code},"${values.note ?? ""}","${values["recipient-email"] ?? ""}"\n`,
-  );
+  const row = [
+    csvEscape(timestamp),
+    csvEscape(values.role),
+    csvEscape(code),
+    csvEscape(values.note),
+    csvEscape(values["recipient-email"]),
+  ].join(",");
+  appendFileSync(logPath, `${row}\n`);
   console.log(code);
 }
 console.error(`\nLogged ${body.codes.length} code(s) to ${logPath}`);

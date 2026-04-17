@@ -38,17 +38,24 @@ export function RedeemDialog({ open, onClose, onSuccess }: RedeemDialogProps): R
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async () => {
+    // Guard against rapid double-click: disable the button BEFORE validation
+    // so a second click during the fetch round-trip can't fire a second
+    // request. The button's `disabled={submitting}` prop blocks subsequent
+    // clicks until we either error-out or finish the request.
+    if (submitting) return;
+    setSubmitting(true);
     setError(null);
     const normalized = code.trim().toUpperCase();
     if (!CODE_RE.test(normalized)) {
       setError("Invalid code format. Expected FC-XXXX-XXXX-XXXX.");
+      setSubmitting(false);
       return;
     }
     if (!email.includes("@")) {
       setError("Please enter the email address the code was issued to.");
+      setSubmitting(false);
       return;
     }
-    setSubmitting(true);
     const result = await redeemCode(normalized, email);
     setSubmitting(false);
     if (result.ok) {

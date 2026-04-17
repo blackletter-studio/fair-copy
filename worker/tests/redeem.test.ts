@@ -156,4 +156,62 @@ describe("POST /api/redeem", () => {
     });
     expect(res.status).toBe(400);
   });
+
+  it("concurrent first-redeems of same code + same email converge on one sub", async () => {
+    // Simulates the Cloudflare-KV race: two clients POST the same code+email
+    // in parallel. Each sees `consumed:false`, mints a different `licenseId`,
+    // and races on `putCode`. The post-write winner-check must collapse both
+    // responses onto the same `sub` (the one written by whichever putCode won).
+    await seedCode("FC-0000-0000-0005");
+    const body = JSON.stringify({
+      code: "FC-0000-0000-0005",
+      email: "race@example.com",
+    });
+    const [resA, resB] = await Promise.all([
+      mf.dispatchFetch("http://localhost/api/redeem", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      }),
+      mf.dispatchFetch("http://localhost/api/redeem", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      }),
+    ]);
+    expect(resA.status).toBe(200);
+    expect(resB.status).toBe(200);
+    const tokenA = ((await resA.json()) as { token: string }).token;
+    const tokenB = ((await resB.json()) as { token: string }).token;
+    const pub = await importSPKI(publicPem, "EdDSA");
+    const [payloadA, payloadB] = await Promise.all([
+      jwtVerify(tokenA, pub).then((r) => r.payload),
+      jwtVerify(tokenB, pub).then((r) => r.payload),
+    ]);
+    expect(payloadA.sub).toBe(payloadB.sub);
+  });
+
+  it("concurrent first-redeems of same code + different emails: one wins, the other 409s", async () => {
+    await seedCode("FC-0000-0000-0006");
+    const [resA, resB] = await Promise.all([
+      mf.dispatchFetch("http://localhost/api/redeem", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          code: "FC-0000-0000-0006",
+          email: "first@example.com",
+        }),
+      }),
+      mf.dispatchFetch("http://localhost/api/redeem", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          code: "FC-0000-0000-0006",
+          email: "second@example.com",
+        }),
+      }),
+    ]);
+    const statuses = [resA.status, resB.status].sort();
+    expect(statuses).toEqual([200, 409]);
+  });
 });
