@@ -76,6 +76,11 @@ export interface DetectionResult {
   items: Array<TrackedChangeInfo | ImageInfo | DocumentState>;
 }
 
+export interface Detector<T extends "tracked-changes" | "images" | "document-state"> {
+  kind: T;
+  detect(doc: DocumentAdapter): DetectionResult | null;
+}
+
 /** What a rule needs from the document. */
 export interface DocumentAdapter {
   getAllParagraphs(): Paragraph[];
