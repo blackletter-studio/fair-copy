@@ -1,0 +1,2 @@
+# Build artefact produced by tests/globalSetup.ts; regenerated per test run.
+dist-test/
