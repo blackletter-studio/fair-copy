@@ -51,6 +51,11 @@ export class WordDocumentAdapter implements DocumentAdapter {
   private loadedHyperlinks: HyperlinkInfo[] = [];
   private loadedState: DocumentState | null = null;
   private pendingMutations: Array<(ctx: Word.RequestContext) => void> = [];
+  // The comment collection pre-loaded by commit() before replaying mutations.
+  // Closures reference `this.preloadedComments` instead of calling
+  // `ctx.document.body.getComments()` because Office.js returns a fresh
+  // (unloaded) proxy on each call — load state is per-proxy, not per-collection.
+  private preloadedComments: Word.CommentCollection | null = null;
 
   /**
    * Wait for Office.js + Word host API to be ready. main.tsx already awaits
@@ -256,14 +261,13 @@ export class WordDocumentAdapter implements DocumentAdapter {
   }
 
   removeComments(): void {
-    this.pendingMutations.push((ctx) => {
-      // Items on the comments collection are pre-loaded by commit() before this
-      // closure runs — see Word.run block in commit(). Reading .items here is
-      // safe; a previous attempt to `comments.load("items")` + immediately read
-      // inside the same closure threw `PropertyNotLoaded` because the load
-      // needs a `context.sync()` boundary before the read, which the single-
-      // batch design doesn't permit mid-closure.
-      const comments = ctx.document.body.getComments();
+    this.pendingMutations.push(() => {
+      // Office.js gotcha: `body.getComments()` returns a NEW proxy on every
+      // call; load state doesn't travel with the collection abstractly, only
+      // with the specific proxy instance. So we read from `this.preloadedComments`
+      // which was populated + sync'd in commit() before this closure ran.
+      const comments = this.preloadedComments;
+      if (!comments) return;
       for (const c of comments.items) {
         c.delete();
       }
@@ -374,9 +378,12 @@ export class WordDocumentAdapter implements DocumentAdapter {
       body.paragraphs.load("items");
       body.inlinePictures.load("items");
       body.tables.load("items");
-      // Pre-load comments too — removeComments() needs to iterate .items and
-      // cannot call .load + sync itself inside the single-batch closure.
-      body.getComments().load("items");
+      // Pre-load comments and store the exact proxy on `this` so the
+      // removeComments closure can reference it. Load state is per-proxy;
+      // calling body.getComments() a second time inside the closure would
+      // return a fresh unloaded proxy and throw PropertyNotLoaded.
+      this.preloadedComments = body.getComments();
+      this.preloadedComments.load("items");
       await context.sync();
 
       for (const mutate of mutations) {
@@ -385,6 +392,7 @@ export class WordDocumentAdapter implements DocumentAdapter {
       await context.sync();
     });
     // Clear caches so a subsequent load() starts fresh against the new state.
+    this.preloadedComments = null;
     this.loadedParagraphs = [];
     this.loadedImages = [];
     this.loadedTrackedChanges = [];
