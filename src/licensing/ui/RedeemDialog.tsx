@@ -1,0 +1,126 @@
+import React, { useState } from "react";
+import {
+  Button,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
+  DialogActions,
+  Field,
+  Input,
+  Text,
+  makeStyles,
+  tokens,
+} from "@fluentui/react-components";
+import { redeemCode } from "../api";
+
+const CODE_RE = /^FC-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/;
+
+const useStyles = makeStyles({
+  error: {
+    color: tokens.colorPaletteRedForeground1,
+    marginTop: tokens.spacingVerticalS,
+  },
+});
+
+export interface RedeemDialogProps {
+  open: boolean;
+  onClose: () => void;
+  onSuccess: (token: string) => void;
+}
+
+export function RedeemDialog({ open, onClose, onSuccess }: RedeemDialogProps): React.JSX.Element {
+  const styles = useStyles();
+  const [code, setCode] = useState("");
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    // Guard against rapid double-click: disable the button BEFORE validation
+    // so a second click during the fetch round-trip can't fire a second
+    // request. The button's `disabled={submitting}` prop blocks subsequent
+    // clicks until we either error-out or finish the request.
+    if (submitting) return;
+    setSubmitting(true);
+    setError(null);
+    const normalized = code.trim().toUpperCase();
+    if (!CODE_RE.test(normalized)) {
+      setError("Invalid code format. Expected FC-XXXX-XXXX-XXXX.");
+      setSubmitting(false);
+      return;
+    }
+    if (!email.includes("@")) {
+      setError("Please enter the email address the code was issued to.");
+      setSubmitting(false);
+      return;
+    }
+    const result = await redeemCode(normalized, email);
+    setSubmitting(false);
+    if (result.ok) {
+      onSuccess(result.token);
+      return;
+    }
+    // Distinguish between user-input errors, server errors, and
+    // network-unreachable so we can surface actionable copy for each.
+    if (result.status === 0) {
+      // fetch() threw — DNS / offline / cert rejection / Worker undeployed.
+      setError(
+        "Couldn't reach the license server. Check your internet connection and try again. If the problem persists, email support@blackletter.studio.",
+      );
+    } else if (result.status === 404) {
+      setError("License code not found. Check for typos and try again.");
+    } else if (result.status === 409) {
+      setError(
+        "This code was already redeemed by a different email address. Use the email the code was issued to, or email support@blackletter.studio if you believe this is an error.",
+      );
+    } else if (result.status === 400) {
+      setError(result.message);
+    } else if (result.status >= 500) {
+      setError(
+        "The license server had a problem processing your request. Try again in a moment; if it persists, email support@blackletter.studio.",
+      );
+    } else {
+      setError(`Unexpected error (${result.message}). Try again in a moment.`);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(_, data) => !data.open && onClose()}>
+      <DialogSurface>
+        <DialogBody>
+          <DialogTitle>Activate Fair Copy</DialogTitle>
+          <DialogContent>
+            <Field label="License code">
+              <Input
+                value={code}
+                onChange={(_, data) => setCode(data.value)}
+                placeholder="FC-XXXX-XXXX-XXXX"
+                aria-label="License code"
+              />
+            </Field>
+            <Field label="Email">
+              <Input
+                type="email"
+                value={email}
+                onChange={(_, data) => setEmail(data.value)}
+                placeholder="you@firm.com"
+                aria-label="Email"
+              />
+            </Field>
+            {error !== null && <Text className={styles.error}>{error}</Text>}
+          </DialogContent>
+          <DialogActions>
+            <Button appearance="secondary" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button appearance="primary" disabled={submitting} onClick={() => void handleSubmit()}>
+              Activate
+            </Button>
+          </DialogActions>
+        </DialogBody>
+      </DialogSurface>
+    </Dialog>
+  );
+}

@@ -9,7 +9,9 @@ import type {
   RangeRef,
   TextFormat,
   ParagraphFormat,
+  HeadingLevel,
 } from "./types";
+import { minimalReplacements } from "./text-diff";
 
 /**
  * Production DocumentAdapter backed by Office.js Word API.
@@ -50,7 +52,7 @@ export class WordDocumentAdapter implements DocumentAdapter {
   private loadedTrackedChanges: TrackedChangeInfo[] = [];
   private loadedHyperlinks: HyperlinkInfo[] = [];
   private loadedState: DocumentState | null = null;
-  private pendingMutations: Array<(ctx: Word.RequestContext) => void> = [];
+  private pendingMutations: Array<(ctx: Word.RequestContext) => void | Promise<void>> = [];
   // The comment collection pre-loaded by commit() before replaying mutations.
   // Closures reference `this.preloadedComments` instead of calling
   // `ctx.document.body.getComments()` because Office.js returns a fresh
@@ -177,6 +179,18 @@ export class WordDocumentAdapter implements DocumentAdapter {
     return this.loadedState;
   }
 
+  getHeadingStyle(ref: RangeRef): HeadingLevel {
+    const match = /^para-(\d+)$/.exec(ref.id);
+    if (!match) return null;
+    const paraIdxStr = match[1];
+    if (paraIdxStr === undefined) return null;
+    const paraIdx = Number.parseInt(paraIdxStr, 10);
+    // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
+    const para = this.loadedParagraphs[paraIdx];
+    if (!para) return null;
+    return mapHeadingStyleName(para.paragraphFormat.styleName);
+  }
+
   setTextFormat(ref: RangeRef, format: Partial<TextFormat>): void {
     const match = /^para-(\d+)-run-(\d+)$/.exec(ref.id);
     if (!match) return;
@@ -225,6 +239,97 @@ export class WordDocumentAdapter implements DocumentAdapter {
       // TODO(M2.5): styleName is read-only in M2 — applying a named style
       //             would require assigning p.style / p.styleBuiltIn. Add it
       //             once a rule actually writes it.
+    });
+  }
+
+  setParagraphText(ref: RangeRef, text: string): void {
+    const match = /^para-(\d+)$/.exec(ref.id);
+    if (!match) return;
+    const paraIdxStr = match[1];
+    if (paraIdxStr === undefined) return;
+    const paraIdx = Number.parseInt(paraIdxStr, 10);
+    // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
+    const cachedPara = this.loadedParagraphs[paraIdx];
+    const oldText = cachedPara?.text ?? "";
+    if (oldText === "") {
+      // No cached paragraph — likely because load() was never called on this
+      // adapter instance, or a factory created a fresh adapter per call. We
+      // cannot compute a minimal diff without oldText; fall back to whole-
+      // paragraph replace. Logged so callers can fix the lifecycle bug.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `setParagraphText: no cached paragraph text for para-${paraIdx} — falling back to whole-paragraph replace. Was load() called on this adapter?`,
+      );
+      this.pendingMutations.push((ctx) => {
+        // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
+        const p = ctx.document.body.paragraphs.items[paraIdx];
+        if (!p) return;
+        p.insertText(text, Word.InsertLocation.replace);
+      });
+      return;
+    }
+    if (oldText === text) return;
+    const edits = minimalReplacements(oldText, text);
+    // Optimistically update the in-memory paragraph text so subsequent edits
+    // to the same paragraph diff against the post-apply state rather than the
+    // pre-apply state. If the Office.js write fails, the cache will drift
+    // from reality — but that's the same "index drift if user edits mid-batch"
+    // acceptable failure mode already documented on this class.
+    if (cachedPara) {
+      cachedPara.text = text;
+      if (cachedPara.runs[0]) cachedPara.runs[0].text = text;
+    }
+    this.pendingMutations.push(async (ctx) => {
+      // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
+      const p = ctx.document.body.paragraphs.items[paraIdx];
+      if (!p) {
+        // eslint-disable-next-line no-console
+        console.warn(`setParagraphText: paragraph ${paraIdx} not found in context`);
+        return;
+      }
+      // Try targeted search-and-replace for each minimal edit. This preserves
+      // per-run formatting on everything else in the paragraph. If search
+      // misses any edit OR throws (short search strings like "3" are flaky on
+      // Word for Mac), fall back to whole-paragraph replace. That flattens
+      // formatting, but a formatting flatten is a much better failure mode
+      // than a silent no-op — the user can SEE it worked.
+      try {
+        // eslint-disable-next-line no-console
+        console.log(
+          `setParagraphText: applying ${edits.length} targeted edit(s) to para-${paraIdx}`,
+          edits.map((e) => ({ findLen: e.find.length, replaceLen: e.replace.length })),
+        );
+        let allEditsMatched = true;
+        for (const edit of edits) {
+          const results = p.search(edit.find, { matchCase: true });
+          results.load("items");
+          await ctx.sync();
+          const first = results.items[0];
+          if (first) {
+            first.insertText(edit.replace, Word.InsertLocation.replace);
+          } else {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `setParagraphText: search found no match for "${edit.find}" in para-${paraIdx}`,
+            );
+            allEditsMatched = false;
+          }
+        }
+        if (!allEditsMatched) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `setParagraphText: some edits didn't match — falling back to whole-paragraph replace for para-${paraIdx}. Formatting may flatten.`,
+          );
+          p.insertText(text, Word.InsertLocation.replace);
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error(
+          "setParagraphText: targeted search-and-replace failed; falling back to whole-paragraph replace. Formatting may flatten.",
+          err,
+        );
+        p.insertText(text, Word.InsertLocation.replace);
+      }
     });
   }
 
@@ -369,6 +474,338 @@ export class WordDocumentAdapter implements DocumentAdapter {
     });
   }
 
+  selectRange(ref: RangeRef): void {
+    // Selection is a user-gesture UI action, not a batched mutation — it must
+    // take effect immediately on click, not wait for the next commit(). So we
+    // run our own Word.run + sync here rather than queueing into
+    // pendingMutations (which is the batch pipeline used by Apply all / safe).
+    const paraMatch = /^para-(\d+)$/.exec(ref.id);
+    const spellMatch = /^spell-(\d+)-(\d+)-(\d+)$/.exec(ref.id);
+
+    if (paraMatch) {
+      const paraIdxStr = paraMatch[1];
+      if (paraIdxStr === undefined) return;
+      const paraIdx = Number.parseInt(paraIdxStr, 10);
+      // Fire-and-forget; caller doesn't await. Log failures rather than throw so
+      // a stuck-selection never corrupts the React state machine.
+      void (async () => {
+        try {
+          await this.waitForWordApi();
+          await Word.run(async (context) => {
+            const paragraphs = context.document.body.paragraphs;
+            paragraphs.load("items");
+            await context.sync();
+            // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
+            const p = paragraphs.items[paraIdx];
+            if (!p) return;
+            p.select();
+            await context.sync();
+          });
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn("selectRange failed:", err);
+        }
+      })();
+      return;
+    }
+
+    if (spellMatch) {
+      const paraIdx = Number.parseInt(spellMatch[1]!, 10);
+      const offset = Number.parseInt(spellMatch[2]!, 10);
+      const len = Number.parseInt(spellMatch[3]!, 10);
+      // eslint-disable-next-line security/detect-object-injection -- values parsed from ids we formatted
+      const cachedPara = this.loadedParagraphs[paraIdx];
+      if (!cachedPara) return;
+      const word = cachedPara.text.slice(offset, offset + len);
+      void (async () => {
+        try {
+          await this.waitForWordApi();
+          await Word.run(async (context) => {
+            const paragraphs = context.document.body.paragraphs;
+            paragraphs.load("items");
+            await context.sync();
+            // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted
+            const p = paragraphs.items[paraIdx];
+            if (!p) return;
+            // Fall back to paragraph-level selection if word is empty or search
+            // is unreliable (e.g. word appears multiple times in paragraph).
+            if (!word) {
+              p.select();
+              await context.sync();
+              return;
+            }
+            try {
+              const results = p.search(word, { matchCase: true });
+              results.load("items");
+              await context.sync();
+              const first = results.items[0];
+              if (first) {
+                first.select();
+              } else {
+                // Word not found by search — fall back to paragraph selection.
+                // eslint-disable-next-line no-console
+                console.warn(
+                  `selectRange(spell): word "${word}" not found in para-${paraIdx}; selecting paragraph`,
+                );
+                p.select();
+              }
+              await context.sync();
+            } catch (searchErr) {
+              // eslint-disable-next-line no-console
+              console.warn(
+                "selectRange(spell): search failed; falling back to paragraph select",
+                searchErr,
+              );
+              p.select();
+              await context.sync();
+            }
+          });
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn("selectRange(spell) failed:", err);
+        }
+      })();
+    }
+  }
+
+  replaceRange(ref: RangeRef, newText: string): void {
+    const match = /^spell-(\d+)-(\d+)-(\d+)$/.exec(ref.id);
+    if (!match) return;
+    const paraIdx = Number.parseInt(match[1]!, 10);
+    const offset = Number.parseInt(match[2]!, 10);
+    const len = Number.parseInt(match[3]!, 10);
+    // eslint-disable-next-line security/detect-object-injection -- values parsed from ids we formatted
+    const cachedPara = this.loadedParagraphs[paraIdx];
+    if (!cachedPara) return;
+    const oldWord = cachedPara.text.slice(offset, offset + len);
+    // Optimistically update cache.
+    const newFullText =
+      cachedPara.text.slice(0, offset) + newText + cachedPara.text.slice(offset + len);
+    cachedPara.text = newFullText;
+    if (cachedPara.runs[0]) cachedPara.runs[0].text = newFullText;
+
+    this.pendingMutations.push(async (ctx) => {
+      // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted
+      const p = ctx.document.body.paragraphs.items[paraIdx];
+      if (!p) return;
+      try {
+        const results = p.search(oldWord, { matchCase: true });
+        results.load("items");
+        await ctx.sync();
+        const first = results.items[0];
+        if (first) {
+          first.insertText(newText, Word.InsertLocation.replace);
+        } else {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `replaceRange: word "${oldWord}" not found in para-${paraIdx}; skipping replacement`,
+          );
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("replaceRange failed:", err);
+      }
+    });
+  }
+
+  /**
+   * Returns all spelling errors from Word's own engine, as paragraph-scoped
+   * ranges with character offsets. Backed by `Word.Document.spellingErrors`
+   * (WordApiDesktop 1.4+). On older hosts the property is undefined; the outer
+   * try/catch logs a warning and returns [].
+   */
+  async getSpellingErrorRanges(): Promise<
+    Array<{ paragraphIndex: number; text: string; offset: number; length: number }>
+  > {
+    return this.getErrorRangesFromDocumentProperty("spellingErrors");
+  }
+
+  /**
+   * Returns all grammar errors from Word's own engine. Same shape as
+   * `getSpellingErrorRanges`. Backed by `Word.Document.grammaticalErrors`
+   * (WordApiDesktop 1.4+).
+   */
+  async getGrammarErrorRanges(): Promise<
+    Array<{ paragraphIndex: number; text: string; offset: number; length: number }>
+  > {
+    return this.getErrorRangesFromDocumentProperty("grammaticalErrors");
+  }
+
+  /**
+   * Shared implementation for the two proofing-error queries. Office.js
+   * exposes spelling + grammar errors as two separate `RangeCollection`s on
+   * `Word.Document`; the only differences between the two code paths are the
+   * property name and the logging tag.
+   *
+   * Mapping each error range back to our paragraph index uses the range's
+   * parent paragraph + a text-match lookup. Office.js `Range` doesn't expose
+   * a global character offset, so a text match is the pragmatic fallback.
+   * If two paragraphs have identical text, the first match wins — acceptable
+   * for realistic legal documents.
+   *
+   * Not covered by unit tests (Office.js can't be mocked); exercised by the
+   * Playwright E2E suite.
+   */
+  private async getErrorRangesFromDocumentProperty(
+    property: "spellingErrors" | "grammaticalErrors",
+  ): Promise<Array<{ paragraphIndex: number; text: string; offset: number; length: number }>> {
+    await this.waitForWordApi();
+    const tag = `[proof:${property}]`;
+    const results: Array<{ paragraphIndex: number; text: string; offset: number; length: number }> =
+      [];
+    try {
+      await Word.run(async (context) => {
+        const doc = context.document;
+        // WordApiDesktop 1.4 properties — not in our @types/office-js so cast.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- property shape documented by Microsoft
+        const docAny = doc as any;
+
+        // Diagnostic 1: does the property exist on the document proxy at all?
+        const rawProp: unknown = docAny[property];
+        // eslint-disable-next-line no-console
+        console.log(`${tag} property typeof=${typeof rawProp}, present=${rawProp != null}`);
+        if (!rawProp) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `${tag} property missing on Word.Document — requires WordApiDesktop 1.4. ` +
+              `Either your Word build is older OR the property is Windows-only. Returning [].`,
+          );
+          return;
+        }
+
+        // Diagnostic 2: has the proofing engine actually run on this doc?
+        // `isSpellingChecked` / `isGrammarChecked` are booleans that track
+        // whether the engine has processed the document. If false, the
+        // corresponding *Errors RangeCollection will be empty even when the
+        // user can see red/green squiggles (the display layer is decoupled
+        // from the API-exposed state).
+        const checkedProp =
+          property === "spellingErrors" ? "isSpellingChecked" : "isGrammarChecked";
+        const runMethod = property === "spellingErrors" ? "checkSpelling" : "checkGrammar";
+        // eslint-disable-next-line security/detect-object-injection
+        const checkedHandle: unknown = docAny[checkedProp];
+        // Properties on Office.js proxies need to be loaded before read.
+        if (checkedHandle != null) {
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+          doc.load(checkedProp);
+          await context.sync();
+          // eslint-disable-next-line security/detect-object-injection
+          const checked = docAny[checkedProp] as boolean | undefined;
+          // eslint-disable-next-line no-console
+          console.log(`${tag} ${checkedProp}=${String(checked)}`);
+          if (checked === false) {
+            // eslint-disable-next-line no-console
+            console.log(`${tag} proofing not yet run — calling ${runMethod}()`);
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+              docAny[runMethod]();
+              await context.sync();
+              // eslint-disable-next-line no-console
+              console.log(`${tag} ${runMethod}() completed`);
+            } catch (runErr) {
+              // eslint-disable-next-line no-console
+              console.warn(`${tag} ${runMethod}() threw:`, runErr);
+            }
+          }
+        } else {
+          // eslint-disable-next-line no-console
+          console.log(`${tag} ${checkedProp} not on proxy; skipping warm-up probe`);
+        }
+
+        // Re-read the property AFTER potential warm-up.
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, security/detect-object-injection
+        const errors = docAny[property] as Word.RangeCollection | undefined;
+        if (!errors) {
+          // eslint-disable-next-line no-console
+          console.warn(`${tag} property vanished after warm-up — giving up`);
+          return;
+        }
+        errors.load("items");
+
+        const body = doc.body;
+        const paragraphs = body.paragraphs;
+        paragraphs.load("items");
+        await context.sync();
+
+        // Diagnostic 3: how many raw errors did Word surface?
+        // eslint-disable-next-line no-console
+        console.log(
+          `${tag} post-sync: errors.items.length=${errors.items.length}, ` +
+            `paragraphs.items.length=${paragraphs.items.length}`,
+        );
+        if (errors.items.length === 0) {
+          // eslint-disable-next-line no-console
+          console.log(
+            `${tag} zero items after sync. Either the doc is clean OR the engine ` +
+              `still hasn't populated its API-exposed errors collection. If Word ` +
+              `visibly shows squiggles in the doc, this is the bug.`,
+          );
+          return;
+        }
+
+        paragraphs.items.forEach((p) => p.load("text"));
+        errors.items.forEach((err) => err.load("text"));
+        const parentParas = errors.items.map((err) => err.paragraphs.getFirst());
+        parentParas.forEach((p) => p.load("text"));
+        await context.sync();
+
+        // Build paragraph-text → first-matching-index map.
+        const paraIdxByText = new Map<string, number>();
+        paragraphs.items.forEach((p, i) => {
+          if (!paraIdxByText.has(p.text)) paraIdxByText.set(p.text, i);
+        });
+
+        let unmatchedParent = 0;
+        let unmatchedOffset = 0;
+        for (let i = 0; i < errors.items.length; i++) {
+          // eslint-disable-next-line security/detect-object-injection -- loop counter
+          const err = errors.items[i];
+          // eslint-disable-next-line security/detect-object-injection -- loop counter
+          const parent = parentParas[i];
+          if (!err || !parent) continue;
+          const errText = err.text;
+          const paraText = parent.text;
+          const paraIdx = paraIdxByText.get(paraText);
+          if (paraIdx === undefined) {
+            unmatchedParent++;
+            // eslint-disable-next-line no-console
+            console.log(
+              `${tag} no paragraph-index for err[${i}] "${errText}": ` +
+                `parent text "${paraText.slice(0, 60)}${paraText.length > 60 ? "…" : ""}" ` +
+                `not in our cached paragraphs`,
+            );
+            continue;
+          }
+          const offset = paraText.indexOf(errText);
+          if (offset === -1) {
+            unmatchedOffset++;
+            // eslint-disable-next-line no-console
+            console.log(
+              `${tag} err[${i}] "${errText}" not found via indexOf in para-${paraIdx} text`,
+            );
+            continue;
+          }
+          results.push({
+            paragraphIndex: paraIdx,
+            text: errText,
+            offset,
+            length: errText.length,
+          });
+        }
+
+        // eslint-disable-next-line no-console
+        console.log(
+          `${tag} mapped ${results.length}/${errors.items.length} errors ` +
+            `(unmatched parent=${unmatchedParent}, unmatched offset=${unmatchedOffset})`,
+        );
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`${tag} query failed:`, err);
+    }
+    return results;
+  }
+
   async commit(): Promise<void> {
     if (this.pendingMutations.length === 0) return;
     await this.waitForWordApi();
@@ -390,17 +827,20 @@ export class WordDocumentAdapter implements DocumentAdapter {
       await context.sync();
 
       for (const mutate of mutations) {
-        mutate(context);
+        await mutate(context);
       }
       await context.sync();
     });
-    // Clear caches so a subsequent load() starts fresh against the new state.
+    // Keep loadedParagraphs/images/etc warm across commits. Proofmark's usage
+    // pattern is scan-once, apply-many: the user clicks Proofread (load + scan),
+    // then clicks Apply multiple times, each of which commits. If we cleared
+    // the caches after each commit, the SECOND Apply would read empty text
+    // from loadedParagraphs[idx], breaking setParagraphText's text-diff logic.
+    // The caches may drift if the user edits the doc between commits — that's
+    // acceptable and matches the existing M2 policy (see class docs).
+    // We still clear preloadedComments because its proxy is bound to the
+    // Word.run context we just exited.
     this.preloadedComments = null;
-    this.loadedParagraphs = [];
-    this.loadedImages = [];
-    this.loadedTrackedChanges = [];
-    this.loadedHyperlinks = [];
-    this.loadedState = null;
   }
 }
 
@@ -439,5 +879,30 @@ function unmapAlignment(a: ParagraphFormat["alignment"]): Word.Alignment {
       return Word.Alignment.justified;
     default:
       return Word.Alignment.left;
+  }
+}
+
+function mapHeadingStyleName(styleName: string | undefined): HeadingLevel {
+  if (!styleName) return null;
+  const normalized = styleName.trim().toLowerCase();
+  if (normalized === "title") return "title";
+  const match = /^heading\s*([1-6])$/.exec(normalized);
+  if (!match) return null;
+  const level = match[1];
+  switch (level) {
+    case "1":
+      return "heading-1";
+    case "2":
+      return "heading-2";
+    case "3":
+      return "heading-3";
+    case "4":
+      return "heading-4";
+    case "5":
+      return "heading-5";
+    case "6":
+      return "heading-6";
+    default:
+      return null;
   }
 }

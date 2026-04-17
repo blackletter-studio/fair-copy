@@ -1,5 +1,14 @@
 import "@testing-library/jest-dom";
 
+// jsdom installs its own Uint8Array constructor that is !== Node's native one,
+// which breaks `jose`'s internal `payload instanceof Uint8Array` checks when
+// we sign/verify JWTs inside jsdom-hosted tests (anything under tests/licensing
+// that talks to jose). Restore the native Uint8Array so jose sees a match.
+// This has to run BEFORE any test file imports jose.
+const nativeUint8Array = Object.getPrototypeOf(new TextEncoder().encode("")).constructor;
+(globalThis as unknown as { Uint8Array: typeof Uint8Array }).Uint8Array =
+  nativeUint8Array as typeof Uint8Array;
+
 // Minimal Office.js stub so components under test don't crash on Office.onReady
 // or on OfficeRoamingSettingsStore access in App bootstrap.
 interface RoamingSettingsStub {

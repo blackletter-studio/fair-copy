@@ -25,8 +25,10 @@ function fakeAdapter(): DocumentAdapter {
       hasActiveComments: false,
       commentCount: 0,
     }),
+    getHeadingStyle: () => null,
     setTextFormat: () => {},
     setParagraphFormat: () => {},
+    setParagraphText: () => {},
     rejectTrackedChange: () => {},
     removeImage: () => {},
     removeComments: () => {},
@@ -34,6 +36,8 @@ function fakeAdapter(): DocumentAdapter {
     setListStyle: () => {},
     setTableBorders: () => {},
     removeSectionBreaks: () => {},
+    selectRange: () => {},
+    replaceRange: () => {},
     commit: async () => {},
   };
 }

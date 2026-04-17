@@ -70,6 +70,16 @@ export interface DocumentState {
   commentCount: number;
 }
 
+export type HeadingLevel =
+  | "title"
+  | "heading-1"
+  | "heading-2"
+  | "heading-3"
+  | "heading-4"
+  | "heading-5"
+  | "heading-6"
+  | null;
+
 export interface DetectionResult {
   kind: "tracked-changes" | "images" | "document-state";
   count: number;
@@ -96,8 +106,12 @@ export interface DocumentAdapter {
   getAllTrackedChanges(): TrackedChangeInfo[];
   getAllHyperlinks(): HyperlinkInfo[];
   getDocumentState(): DocumentState;
+  /** Heading style for this paragraph, or null if it is body text. */
+  getHeadingStyle(ref: RangeRef): HeadingLevel;
   setTextFormat(ref: RangeRef, format: Partial<TextFormat>): void;
   setParagraphFormat(ref: RangeRef, format: Partial<ParagraphFormat>): void;
+  /** Replace the entire text of a paragraph range with new text. */
+  setParagraphText(ref: RangeRef, text: string): void;
   rejectTrackedChange(ref: RangeRef): void;
   removeImage(ref: RangeRef): void;
   removeComments(): void;
@@ -108,7 +122,31 @@ export interface DocumentAdapter {
   ): void;
   setTableBorders(ref: RangeRef, borders: { style: "none" | "hairline" } | null): void;
   removeSectionBreaks(): void;
+  /** Scroll the document view to the paragraph identified by ref and select it. */
+  selectRange(ref: RangeRef): void;
+  /** Replace text at a specific sub-paragraph range (by ref). Used by spelling. */
+  replaceRange(ref: RangeRef, newText: string): void;
   commit(): Promise<void>;
+  /**
+   * Optional: return spelling errors from the host's proofing engine. Each
+   * entry includes the zero-based paragraph index, flagged text, character
+   * offset within that paragraph, and the run length.
+   *
+   * Backed by `Word.Document.spellingErrors` (WordApiDesktop 1.4+). Older
+   * hosts should leave this method undefined — callers guard with
+   * `typeof doc.getSpellingErrorRanges !== "function"`.
+   */
+  getSpellingErrorRanges?(): Promise<
+    Array<{ paragraphIndex: number; text: string; offset: number; length: number }>
+  >;
+  /**
+   * Optional: return grammar errors from the host's proofing engine. Same
+   * shape as `getSpellingErrorRanges`. Backed by
+   * `Word.Document.grammaticalErrors` (WordApiDesktop 1.4+).
+   */
+  getGrammarErrorRanges?(): Promise<
+    Array<{ paragraphIndex: number; text: string; offset: number; length: number }>
+  >;
 }
 
 export type RuleName =

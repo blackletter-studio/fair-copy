@@ -28,11 +28,16 @@ import { PresetComparisonExpander } from "../ui/PresetComparisonExpander";
 import { CleanButton } from "../ui/CleanButton";
 import { CounterCard } from "../ui/CounterCard";
 import { AdvancedPanel } from "../ui/AdvancedPanel";
-import { PreviewModeBanner } from "../ui/PreviewModeBanner";
 import { OnboardingCarousel } from "../ui/OnboardingCarousel";
 import { TrackedChangesDialog } from "../ui/TrackedChangesDialog";
 import { ImagesDialog } from "../ui/ImagesDialog";
 import { MarkedFinalDialog } from "../ui/MarkedFinalDialog";
+import { ProofmarkPanel } from "../proofmark/ui/ProofmarkPanel";
+import { LicenseProvider, useLicense } from "../licensing/context";
+import { PUBLIC_KEY_PEM } from "../licensing/public-key";
+import { LicenseGate } from "../licensing/ui/LicenseGate";
+import { RedeemDialog } from "../licensing/ui/RedeemDialog";
+import { setStoredToken } from "../licensing/storage";
 
 /** Kind of the dialog currently being shown to collect a destructive decision. */
 type PendingDialogKind = "tracked-changes" | "images" | "marked-final" | null;
@@ -46,16 +51,41 @@ export interface AppProps {
   createAdapter?: () => DocumentAdapter;
 }
 
-export function App({ createAdapter }: AppProps = {}): ReactElement {
+/**
+ * Outer App component. Wraps AppBody in the LicenseProvider so any subtree
+ * can call `useLicense()` to see the verified JWT state. The provider does
+ * its own async verify on mount; the subtree renders as unlicensed until
+ * the verify resolves (sub-100ms for a valid token).
+ */
+export function App(props: AppProps = {}): ReactElement {
+  return (
+    <LicenseProvider publicKeyPem={PUBLIC_KEY_PEM}>
+      <AppBody {...props} />
+    </LicenseProvider>
+  );
+}
+
+function AppBody({ createAdapter }: AppProps = {}): ReactElement {
+  const { licensed, refresh: refreshLicense } = useLicense();
   const settingsStore = useMemo(() => new OfficeRoamingSettingsStore(), []);
+  // Memoize the Proofmark adapter so scan → apply cycles share one instance.
+  // A factory-per-call would give Apply a fresh adapter with an empty
+  // loadedParagraphs cache, breaking setParagraphText's text-diff logic.
+  const proofmarkAdapter = useMemo(
+    () => (createAdapter ? createAdapter() : new WordDocumentAdapter()),
+    [createAdapter],
+  );
   const [activeTool, setActiveTool] = useState<ToolName>("fair-copy");
   const [themeName, setThemeName] = useState<ThemeName>("editorial");
   const [presetName, setPresetName] = useState<PresetKey>("standard");
   const [overrides, setOverrides] = useState<Partial<Record<RuleName, unknown>>>({});
   const [remaining, setRemaining] = useState(MAX_FREE_CLEANS);
   const [exhausted, setExhausted] = useState(false);
-  const [isLicensed, setIsLicensed] = useState(false);
+  // Alias so existing callers that pass an `isLicensed` prop (e.g. CounterCard)
+  // keep working. Licensed-state is owned by the LicenseProvider.
+  const isLicensed = licensed;
   const [firstRun, setFirstRun] = useState(false);
+  const [redeemDialogOpen, setRedeemDialogOpen] = useState(false);
   const [cleanState, setCleanState] = useState<"idle" | "cleaning" | "cleaned">("idle");
   const [pendingDialog, setPendingDialog] = useState<PendingDialogKind>(null);
   const [pendingDetections, setPendingDetections] = useState<DetectionResult[] | null>(null);
@@ -75,7 +105,6 @@ export function App({ createAdapter }: AppProps = {}): ReactElement {
       const remainingCount = await remainingFreeCleans(settingsStore);
       const isDone = await isTrialExhausted(settingsStore);
       const firstRunSeen = settingsStore.get<string>("first-run-seen") === "true";
-      const licensed = !!settingsStore.get<string>("license-jwt");
       const storedTheme: ThemeName =
         settingsStore.get<ThemeName>("theme-preference") ?? "editorial";
 
@@ -83,8 +112,10 @@ export function App({ createAdapter }: AppProps = {}): ReactElement {
       setRemaining(remainingCount);
       setExhausted(isDone);
       setFirstRun(!firstRunSeen);
-      setIsLicensed(licensed);
       setThemeName(storedTheme);
+      // isLicensed is now derived from the LicenseProvider's verified JWT,
+      // not a settings-store string presence check. The old `license-jwt`
+      // key is dead weight and intentionally no longer read.
     })();
     return () => {
       cancelled = true;
@@ -256,14 +287,18 @@ export function App({ createAdapter }: AppProps = {}): ReactElement {
           {activeTool === "fair-copy" ? (
             <>
               {exhausted && !isLicensed ? (
-                <PreviewModeBanner
-                  onGetFairCopy={() =>
-                    window.open("https://blackletter.studio/fair-copy", "_blank")
-                  }
-                  onDismiss={() => {
-                    /* banner stays until purchased — intentionally a no-op */
-                  }}
-                />
+                <>
+                  <LicenseGate onActivate={() => setRedeemDialogOpen(true)} />
+                  <RedeemDialog
+                    open={redeemDialogOpen}
+                    onClose={() => setRedeemDialogOpen(false)}
+                    onSuccess={async (token) => {
+                      setStoredToken(token);
+                      await refreshLicense();
+                      setRedeemDialogOpen(false);
+                    }}
+                  />
+                </>
               ) : (
                 <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
                   <PresetDropdown
@@ -288,11 +323,7 @@ export function App({ createAdapter }: AppProps = {}): ReactElement {
               />
             </>
           ) : (
-            <section style={{ marginTop: 24 }}>
-              <Text as="p" size={300}>
-                Proofmark is coming soon.
-              </Text>
-            </section>
+            <ProofmarkPanel getDocument={() => proofmarkAdapter} settingsStore={settingsStore} />
           )}
 
           {/* Dialog layer */}

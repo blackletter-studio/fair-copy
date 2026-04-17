@@ -7,16 +7,23 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:prod": "tsc -b && vite build && cp manifest.prod.xml dist/manifest.xml",
+    "deploy": "npm run build:prod && wrangler pages deploy dist --project-name=fair-copy-addin --branch=main --commit-dirty=true",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "start:word": "office-addin-debugging start manifest.xml desktop"
+    "start:word": "office-addin-debugging start manifest.xml desktop",
+    "generate-keypair": "tsx scripts/generate-keypair.ts",
+    "mint-code": "tsx scripts/mint-code.ts"
   },
   "dependencies": {
     "@fluentui/react-components": "^9.73.7",
     "@fluentui/react-icons": "^2.0.324",
+    "dictionary-en": "^4.0.0",
+    "jose": "^5.9.6",
+    "nspell": "^2.1.5",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
