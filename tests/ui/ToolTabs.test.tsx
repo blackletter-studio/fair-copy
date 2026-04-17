@@ -8,11 +8,15 @@ const wrap = (ui: ReactElement) =>
   render(<FluentProvider theme={webLightTheme}>{ui}</FluentProvider>);
 
 describe("ToolTabs", () => {
-  it("renders both Fair Copy and Proofmark tabs with coming-soon badge", () => {
+  it("renders both Fair Copy and Proofmark tabs", () => {
     wrap(<ToolTabs activeTool="fair-copy" onSelectTool={vi.fn()} />);
     expect(screen.getByRole("tab", { name: /fair copy/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /proofmark/i })).toBeInTheDocument();
-    expect(screen.getAllByText(/coming soon/i).length).toBeGreaterThan(0);
+  });
+
+  it("does not render a 'coming soon' badge (M3 enabled Proofmark)", () => {
+    wrap(<ToolTabs activeTool="fair-copy" onSelectTool={vi.fn()} />);
+    expect(screen.queryByText(/coming soon/i)).toBeNull();
   });
 
   it("fires onSelectTool('fair-copy') when the Fair Copy tab is clicked", () => {
@@ -22,9 +26,16 @@ describe("ToolTabs", () => {
     expect(onSelect).toHaveBeenCalledWith("fair-copy");
   });
 
-  it("marks the Proofmark tab as disabled", () => {
+  it("fires onSelectTool('proofmark') when the Proofmark tab is clicked", () => {
+    const onSelect = vi.fn();
+    wrap(<ToolTabs activeTool="fair-copy" onSelectTool={onSelect} />);
+    fireEvent.click(screen.getByRole("tab", { name: /proofmark/i }));
+    expect(onSelect).toHaveBeenCalledWith("proofmark");
+  });
+
+  it("does not mark the Proofmark tab as disabled", () => {
     wrap(<ToolTabs activeTool="fair-copy" onSelectTool={vi.fn()} />);
     const proofTab = screen.getByRole("tab", { name: /proofmark/i });
-    expect(proofTab).toHaveAttribute("aria-disabled", "true");
+    expect(proofTab).not.toHaveAttribute("aria-disabled", "true");
   });
 });
