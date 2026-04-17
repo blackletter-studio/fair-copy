@@ -17,6 +17,8 @@
   "dependencies": {
     "@fluentui/react-components": "^9.73.7",
     "@fluentui/react-icons": "^2.0.324",
+    "dictionary-en": "^4.0.0",
+    "nspell": "^2.1.5",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
