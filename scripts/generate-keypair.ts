@@ -34,9 +34,16 @@ export const PUBLIC_KEY_PEM = \`${publicPem.trim()}\`;
 writeFileSync("./src/licensing/public-key.ts", tsSource);
 
 console.log("\u2713 Private key written to ./.private-key.pem");
-console.log("  \u2192 Move it into your password manager");
+console.log("\nNext steps to secure + deploy the rotated key:");
+console.log("  1. Store a backup in macOS Keychain (update the existing entry):");
+console.log('     security add-generic-password -a "$(whoami)@theautomationguru.com" \\');
+console.log('       -s "fair-copy-ed25519-private-key" -w "$(cat ./.private-key.pem)" -U');
+console.log("  2. Set the Cloudflare Worker secret:");
+console.log("     cd worker && wrangler secret put ED25519_PRIVATE_KEY < ../.private-key.pem");
+console.log("  3. Delete the local copy:  rm ./.private-key.pem");
+console.log("");
 console.log(
-  "  \u2192 Then: cd worker && wrangler secret put ED25519_PRIVATE_KEY < ../.private-key.pem",
+  "  Retrieve later via:  security find-generic-password -s fair-copy-ed25519-private-key -w | xxd -r -p",
 );
-console.log("  \u2192 Then: rm ./.private-key.pem");
+console.log("");
 console.log("\u2713 Public key baked into ./src/licensing/public-key.ts (commit this file).");
