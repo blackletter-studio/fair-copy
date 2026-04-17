@@ -1,4 +1,6 @@
 import { health } from "./routes/health";
+import { redeem } from "./routes/redeem";
+import { mint } from "./routes/mint";
 
 /**
  * Cloudflare Worker environment bindings.
@@ -18,14 +20,18 @@ export interface Env {
 }
 
 export default {
-  async fetch(request: Request, _env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/api/health") {
       return health();
     }
-
-    // /api/redeem and /api/mint wired in by subsequent implementation tasks.
+    if (request.method === "POST" && url.pathname === "/api/redeem") {
+      return redeem(request, env);
+    }
+    if (request.method === "POST" && url.pathname === "/api/mint") {
+      return mint(request, env);
+    }
 
     return new Response("Not found", { status: 404 });
   },
