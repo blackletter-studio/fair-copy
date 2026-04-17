@@ -2,7 +2,10 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { FluentProvider, webLightTheme } from "@fluentui/react-components";
 import { FakeDocumentAdapter } from "../../../src/engine/fake-document-adapter";
-import { ProofmarkPanel } from "../../../src/proofmark/ui/ProofmarkPanel";
+import {
+  ProofmarkPanel,
+  type ProofmarkSettingsStore,
+} from "../../../src/proofmark/ui/ProofmarkPanel";
 
 function renderWithTheme(ui: React.ReactElement) {
   return render(<FluentProvider theme={webLightTheme}>{ui}</FluentProvider>);
@@ -10,8 +13,10 @@ function renderWithTheme(ui: React.ReactElement) {
 
 describe("ProofmarkPanel preset persistence", () => {
   it("reads the stored preset on mount", () => {
-    const store = {
-      get: vi.fn((key: string) => (key === "proofmark-preset" ? "loud" : undefined)),
+    const store: ProofmarkSettingsStore = {
+      get: vi.fn((key: string) =>
+        key === "proofmark-preset" ? "loud" : undefined,
+      ) as ProofmarkSettingsStore["get"],
       set: vi.fn(),
       saveAsync: vi.fn().mockResolvedValue(undefined),
     };
@@ -23,7 +28,7 @@ describe("ProofmarkPanel preset persistence", () => {
   });
 
   it("calls saveAsync after every preset change", async () => {
-    const store = {
+    const store: ProofmarkSettingsStore = {
       get: vi.fn(() => undefined),
       set: vi.fn(),
       saveAsync: vi.fn().mockResolvedValue(undefined),
@@ -40,8 +45,8 @@ describe("ProofmarkPanel preset persistence", () => {
   });
 
   it("falls back to 'standard' when the stored value is unrecognized", () => {
-    const store = {
-      get: vi.fn(() => "garbage"),
+    const store: ProofmarkSettingsStore = {
+      get: vi.fn(() => "garbage") as ProofmarkSettingsStore["get"],
       set: vi.fn(),
       saveAsync: vi.fn().mockResolvedValue(undefined),
     };
