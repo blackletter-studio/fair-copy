@@ -38,6 +38,31 @@ describe("ProofmarkPanel", () => {
     });
   });
 
+  it("does NOT auto-apply findings on scan — adapter has no mutations after proofread", async () => {
+    const adapter = new FakeDocumentAdapter([
+      FakeDocumentAdapter.makeParagraph("p1", 'He said "hello" to the court.'),
+    ]);
+    renderWithTheme(<ProofmarkPanel getDocument={() => adapter} />);
+    fireEvent.click(screen.getByRole("button", { name: /proofread/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/straight-quotes/i)).toBeInTheDocument();
+    });
+    // No setParagraphText or other write mutations should have been recorded
+    expect(adapter.mutationsFor("setParagraphText")).toHaveLength(0);
+  });
+
+  it("shows Apply safe changes and Apply all buttons after scan with findings", async () => {
+    const adapter = new FakeDocumentAdapter([
+      FakeDocumentAdapter.makeParagraph("p1", 'He said "hello" to the court.'),
+    ]);
+    renderWithTheme(<ProofmarkPanel getDocument={() => adapter} />);
+    fireEvent.click(screen.getByRole("button", { name: /proofread/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /apply safe changes/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /apply all/i })).toBeInTheDocument();
+    });
+  });
+
   it("persists the chosen preset via the provided settingsStore", async () => {
     const adapter = new FakeDocumentAdapter([]);
     const store = {

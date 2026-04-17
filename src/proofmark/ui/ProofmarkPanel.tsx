@@ -5,14 +5,17 @@ import { runChecks } from "../engine/check-engine";
 import { detectRegions } from "../engine/region-detector";
 import { applyFindingsInBatch } from "../findings/apply-batch";
 import { PROOFMARK_PRESETS, resolvePreset, type PresetName } from "../presets";
-import type { Check, ConfidenceTier, Finding, Region, RegionName } from "../engine/types";
+import type { Check, Finding, Region, RegionName } from "../engine/types";
 import { straightQuotesCheck } from "../engine/checks/straight-quotes";
 import { emEnDashesCheck } from "../engine/checks/em-en-dashes";
 import { nonBreakingSectionSignCheck } from "../engine/checks/non-breaking-section-sign";
 import { doubleSpaceAfterPeriodCheck } from "../engine/checks/double-space-after-period";
 import { ordinalsSuperscriptCheck } from "../engine/checks/ordinals-superscript";
 import { definedTermDriftCheck } from "../engine/checks/defined-term-drift";
-import { legalHomophonesCheck } from "../engine/checks/legal-homophones";
+// legal-homophones is implemented but excluded from the default check set —
+// a dictionary-based homophone detector fires on every occurrence of each
+// confusable word (e.g., every "there" in the doc), which generates too many
+// false positives to be useful. Re-add once we have a grammar-aware variant.
 import { citationFormatCheck } from "../engine/checks/citation-format";
 import { crossReferenceIntegrityCheck } from "../engine/checks/cross-reference-integrity";
 import { partyNameConsistencyCheck } from "../engine/checks/party-name-consistency";
@@ -31,7 +34,6 @@ const ALL_CHECKS: Check[] = [
   doubleSpaceAfterPeriodCheck,
   ordinalsSuperscriptCheck,
   definedTermDriftCheck,
-  legalHomophonesCheck,
   citationFormatCheck,
   crossReferenceIntegrityCheck,
   partyNameConsistencyCheck,
@@ -39,12 +41,6 @@ const ALL_CHECKS: Check[] = [
   tenseConsistencyCheck,
   orphanHeadingCheck,
 ];
-
-const CONFIDENCE_RANK: Record<ConfidenceTier, number> = {
-  low: 0,
-  medium: 1,
-  high: 2,
-};
 
 const useStyles = makeStyles({
   root: {
@@ -108,33 +104,42 @@ export function ProofmarkPanel({
     setRegions(detected);
     const preset = resolvePreset(presetName);
     const allFindings = runChecks(doc, ALL_CHECKS, detected, preset);
-
-    const threshold = preset.autoApplyThreshold;
-    const autoApply: Finding[] = [];
-    const remainder: Finding[] = [];
-    if (threshold === "off") {
-      remainder.push(...allFindings);
-    } else {
-      const minRank = CONFIDENCE_RANK[threshold];
-      for (const f of allFindings) {
-        const rank = CONFIDENCE_RANK[f.confidence];
-        const check = ALL_CHECKS.find((c) => c.name === f.checkName);
-        if (check?.category === "mechanical" && rank >= minRank) {
-          autoApply.push(f);
-        } else {
-          remainder.push(f);
-        }
-      }
-    }
-
-    if (autoApply.length > 0) {
-      await applyFindingsInBatch(doc, ALL_CHECKS, autoApply);
-    }
-
-    setAppliedIds(new Set(autoApply.map((f) => f.id)));
-    setFindings([...autoApply, ...remainder]);
+    setAppliedIds(new Set()); // nothing applied yet
+    setFindings(allFindings);
     setScanState("done");
   }, [getDocument, presetName]);
+
+  const handleApplyAll = useCallback(async () => {
+    const doc = getDocument();
+    const applicable = findings.filter(
+      (f) => !appliedIds.has(f.id) && f.suggestedText !== undefined,
+    );
+    if (applicable.length === 0) return;
+    await applyFindingsInBatch(doc, ALL_CHECKS, applicable);
+    setAppliedIds((prev) => {
+      const next = new Set(prev);
+      for (const f of applicable) next.add(f.id);
+      return next;
+    });
+  }, [findings, appliedIds, getDocument]);
+
+  const handleApplySafe = useCallback(async () => {
+    const doc = getDocument();
+    const applicable = findings.filter((f) => {
+      if (appliedIds.has(f.id)) return false;
+      if (f.suggestedText === undefined) return false;
+      if (f.confidence !== "high") return false;
+      const check = ALL_CHECKS.find((c) => c.name === f.checkName);
+      return check?.category === "mechanical";
+    });
+    if (applicable.length === 0) return;
+    await applyFindingsInBatch(doc, ALL_CHECKS, applicable);
+    setAppliedIds((prev) => {
+      const next = new Set(prev);
+      for (const f of applicable) next.add(f.id);
+      return next;
+    });
+  }, [findings, appliedIds, getDocument]);
 
   const handleConfirmRegion = useCallback((name: RegionName) => {
     setRegions((prev) => prev.map((r) => (r.name === name ? { ...r, confirmed: true } : r)));
@@ -165,9 +170,13 @@ export function ProofmarkPanel({
     setFindings((prev) => prev.filter((f) => f.id !== finding.id));
   }, []);
 
-  const handleScrollTo = useCallback((_finding: Finding) => {
-    // Production adapter exposes a range.select() primitive; fake no-ops.
-  }, []);
+  const handleScrollTo = useCallback(
+    (finding: Finding) => {
+      const doc = getDocument();
+      doc.selectRange(finding.range);
+    },
+    [getDocument],
+  );
 
   const buttonLabel =
     scanState === "scanning"
@@ -196,13 +205,25 @@ export function ProofmarkPanel({
       {scanState === "done" && findings.length === 0 ? (
         <EmptyState />
       ) : (
-        <FindingsList
-          findings={findings}
-          appliedIds={appliedIds}
-          onApply={(f) => void handleApply(f)}
-          onDismiss={handleDismiss}
-          onScrollTo={handleScrollTo}
-        />
+        <>
+          {scanState === "done" && findings.length > 0 && (
+            <div style={{ display: "flex", gap: tokens.spacingHorizontalS }}>
+              <Button appearance="primary" onClick={() => void handleApplySafe()}>
+                Apply safe changes
+              </Button>
+              <Button appearance="subtle" onClick={() => void handleApplyAll()}>
+                Apply all
+              </Button>
+            </div>
+          )}
+          <FindingsList
+            findings={findings}
+            appliedIds={appliedIds}
+            onApply={(f) => void handleApply(f)}
+            onDismiss={handleDismiss}
+            onScrollTo={handleScrollTo}
+          />
+        </>
       )}
       <Text size={200}>Active preset: {PROOFMARK_PRESETS[presetName].name}</Text>
     </div>
