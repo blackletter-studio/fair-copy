@@ -33,6 +33,7 @@ import { OnboardingCarousel } from "../ui/OnboardingCarousel";
 import { TrackedChangesDialog } from "../ui/TrackedChangesDialog";
 import { ImagesDialog } from "../ui/ImagesDialog";
 import { MarkedFinalDialog } from "../ui/MarkedFinalDialog";
+import { ProofmarkPanel } from "../proofmark/ui/ProofmarkPanel";
 
 /** Kind of the dialog currently being shown to collect a destructive decision. */
 type PendingDialogKind = "tracked-changes" | "images" | "marked-final" | null;
@@ -288,11 +289,10 @@ export function App({ createAdapter }: AppProps = {}): ReactElement {
               />
             </>
           ) : (
-            <section style={{ marginTop: 24 }}>
-              <Text as="p" size={300}>
-                Proofmark is coming soon.
-              </Text>
-            </section>
+            <ProofmarkPanel
+              getDocument={() => (createAdapter ? createAdapter() : new WordDocumentAdapter())}
+              settingsStore={settingsStore}
+            />
           )}
 
           {/* Dialog layer */}
