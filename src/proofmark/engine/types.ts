@@ -13,7 +13,8 @@ export type CheckName =
   | "party-name-consistency"
   | "numeric-vs-written"
   | "tense-consistency"
-  | "orphan-heading";
+  | "orphan-heading"
+  | "spelling";
 
 export type RegionName =
   | "recitals"
