@@ -3,16 +3,22 @@ main = "src/index.ts"
 compatibility_date = "2026-01-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Custom domain. Cloudflare auto-creates the DNS record + provisions TLS.
+# Requires `blackletter.studio` to be an active zone in this account — it is.
+[[routes]]
+pattern = "fair-copy.blackletter.studio"
+custom_domain = true
+
 # Populate these ids after running:
 #   wrangler kv namespace create LICENSE_CODES
 #   wrangler kv namespace create CONSUMED_LICENSES
 [[kv_namespaces]]
 binding = "LICENSE_CODES"
-id = "REPLACE_WITH_KV_ID_AFTER_CREATE"
+id = "60cc5e67e1894e52b89bc9bcc9613db7"
 
 [[kv_namespaces]]
 binding = "CONSUMED_LICENSES"
-id = "REPLACE_WITH_KV_ID_AFTER_CREATE"
+id = "80dcb3106b3a445293c282fde6b06690"
 
 # Secrets bound via `wrangler secret put`:
 #   ED25519_PRIVATE_KEY  — PKCS8 PEM from fair-copy/scripts/generate-keypair.ts
