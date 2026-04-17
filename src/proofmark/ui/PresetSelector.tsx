@@ -5,13 +5,17 @@ import type { PresetName } from "../presets";
 const useStyles = makeStyles({
   root: {
     display: "flex",
+    flexWrap: "wrap",
     gap: tokens.spacingHorizontalXS,
     border: `1px solid ${tokens.colorNeutralStroke1}`,
     borderRadius: tokens.borderRadiusMedium,
     padding: tokens.spacingHorizontalXS,
+    width: "100%",
+    boxSizing: "border-box",
   },
   button: {
-    flex: 1,
+    flex: "1 1 auto",
+    minWidth: 0,
   },
 });
 
