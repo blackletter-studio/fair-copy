@@ -397,17 +397,35 @@ export class WordDocumentAdapter implements DocumentAdapter {
   }
 
   selectRange(ref: RangeRef): void {
+    // Selection is a user-gesture UI action, not a batched mutation — it must
+    // take effect immediately on click, not wait for the next commit(). So we
+    // run our own Word.run + sync here rather than queueing into
+    // pendingMutations (which is the batch pipeline used by Apply all / safe).
     const match = /^para-(\d+)$/.exec(ref.id);
     if (!match) return;
     const paraIdxStr = match[1];
     if (paraIdxStr === undefined) return;
     const paraIdx = Number.parseInt(paraIdxStr, 10);
-    this.pendingMutations.push((ctx) => {
-      // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
-      const p = ctx.document.body.paragraphs.items[paraIdx];
-      if (!p) return;
-      p.select();
-    });
+    // Fire-and-forget; caller doesn't await. Log failures rather than throw so
+    // a stuck-selection never corrupts the React state machine.
+    void (async () => {
+      try {
+        await this.waitForWordApi();
+        await Word.run(async (context) => {
+          const paragraphs = context.document.body.paragraphs;
+          paragraphs.load("items");
+          await context.sync();
+          // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
+          const p = paragraphs.items[paraIdx];
+          if (!p) return;
+          p.select();
+          await context.sync();
+        });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("selectRange failed:", err);
+      }
+    })();
   }
 
   async commit(): Promise<void> {
