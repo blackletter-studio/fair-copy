@@ -257,14 +257,13 @@ export class WordDocumentAdapter implements DocumentAdapter {
 
   removeComments(): void {
     this.pendingMutations.push((ctx) => {
+      // Items on the comments collection are pre-loaded by commit() before this
+      // closure runs — see Word.run block in commit(). Reading .items here is
+      // safe; a previous attempt to `comments.load("items")` + immediately read
+      // inside the same closure threw `PropertyNotLoaded` because the load
+      // needs a `context.sync()` boundary before the read, which the single-
+      // batch design doesn't permit mid-closure.
       const comments = ctx.document.body.getComments();
-      // commit() pre-loads `body.paragraphs.items` + friends before replaying
-      // mutations, but comments are loaded lazily here. Items will populate
-      // after the final context.sync() in commit(), at which point the delete
-      // calls are already queued. Office.js resolves comment handles lazily,
-      // so queuing delete() on each item is safe even before items is read.
-      // TODO(M2.5): confirm commit-batch iteration semantics against real Word.
-      comments.load("items");
       for (const c of comments.items) {
         c.delete();
       }
@@ -375,6 +374,9 @@ export class WordDocumentAdapter implements DocumentAdapter {
       body.paragraphs.load("items");
       body.inlinePictures.load("items");
       body.tables.load("items");
+      // Pre-load comments too — removeComments() needs to iterate .items and
+      // cannot call .load + sync itself inside the single-batch closure.
+      body.getComments().load("items");
       await context.sync();
 
       for (const mutate of mutations) {
