@@ -77,6 +77,7 @@ export const partyNameConsistencyCheck: Check = {
             severity: "warn",
             confidence: "medium",
             message: `Party "${party.canonical}" (${party.label}) is referenced here as "${candidate}" — verify spelling.`,
+            suggestedText: para.text.replaceAll(candidate, party.canonical),
             metadata: { canonical: party.canonical, variant: candidate },
           });
         }
@@ -84,5 +85,8 @@ export const partyNameConsistencyCheck: Check = {
     }
     return findings;
   },
-  apply(_doc: DocumentAdapter, _finding: Finding): void {},
+  apply(doc: DocumentAdapter, finding: Finding): void {
+    if (finding.suggestedText === undefined) return;
+    doc.setParagraphText(finding.range, finding.suggestedText);
+  },
 };
