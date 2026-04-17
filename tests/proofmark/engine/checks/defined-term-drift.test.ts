@@ -28,4 +28,14 @@ describe("defined-term-drift check", () => {
     ]);
     expect(definedTermDriftCheck.run(adapter, null, { mode: "interactive" })).toHaveLength(0);
   });
+
+  it("produces suggestedText recasing the lowercase term to canonical", () => {
+    const adapter = new FakeDocumentAdapter([
+      FakeDocumentAdapter.makeParagraph("p1", '"Buyer" means ABC Corp.'),
+      FakeDocumentAdapter.makeParagraph("p2", "The buyer shall deliver the goods."),
+    ]);
+    const findings = definedTermDriftCheck.run(adapter, null, { mode: "interactive" });
+    const drift = findings.find((f) => f.range.id === "p2");
+    expect(drift?.suggestedText).toBe("The Buyer shall deliver the goods.");
+  });
 });

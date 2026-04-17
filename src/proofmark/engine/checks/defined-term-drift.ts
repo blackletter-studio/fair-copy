@@ -38,6 +38,7 @@ export const definedTermDriftCheck: Check = {
         const escapedLower = lower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const lowerRegex = new RegExp(`\\b${escapedLower}\\b`, "g");
         if (lowerRegex.test(para.text)) {
+          const suggested = para.text.replace(new RegExp(`\\b${escapedLower}\\b`, "g"), term);
           findings.push({
             id: `defined-term-drift::${para.ref.id}::${term}`,
             checkName: "defined-term-drift",
@@ -47,6 +48,7 @@ export const definedTermDriftCheck: Check = {
             severity: "warn",
             confidence: "medium",
             message: `Defined term "${term}" appears in lowercase here — verify the intended casing.`,
+            suggestedText: suggested !== para.text ? suggested : undefined,
             metadata: { term },
           });
         }
@@ -54,5 +56,8 @@ export const definedTermDriftCheck: Check = {
     }
     return findings;
   },
-  apply(_doc: DocumentAdapter, _finding: Finding): void {},
+  apply(doc: DocumentAdapter, finding: Finding): void {
+    if (finding.suggestedText === undefined) return;
+    doc.setParagraphText(finding.range, finding.suggestedText);
+  },
 };
