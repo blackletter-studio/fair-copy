@@ -13,15 +13,35 @@ export interface SettingsStore {
 const NAMESPACE = "bl-";
 
 export class OfficeRoamingSettingsStore implements SettingsStore {
+  /**
+   * Safely resolve Office.context.roamingSettings. It can transiently become
+   * undefined under Word for Mac after a Word.run batch returns (and in other
+   * edge cases), so every access guards against that rather than throwing
+   * TypeError mid-flow. Callers then treat missing-store as "no persisted
+   * value" which is the correct graceful degradation for trial counters,
+   * theme preference, first-run flag, etc.
+   */
+  private settings(): Office.RoamingSettings | null {
+    const ctx = (
+      globalThis as { Office?: { context?: { roamingSettings?: Office.RoamingSettings } } }
+    ).Office?.context;
+    return ctx?.roamingSettings ?? null;
+  }
   get<T>(key: string): T | undefined {
-    const raw = Office.context.roamingSettings.get(NAMESPACE + key) as unknown;
+    const s = this.settings();
+    if (!s) return undefined;
+    const raw = s.get(NAMESPACE + key) as unknown;
     return raw === null || raw === undefined ? undefined : (raw as T);
   }
   set<T>(key: string, value: T): void {
-    Office.context.roamingSettings.set(NAMESPACE + key, value);
+    const s = this.settings();
+    if (!s) return;
+    s.set(NAMESPACE + key, value);
   }
   remove(key: string): void {
-    Office.context.roamingSettings.remove(NAMESPACE + key);
+    const s = this.settings();
+    if (!s) return;
+    s.remove(NAMESPACE + key);
   }
   saveAsync(): Promise<void> {
     // Office.context.roamingSettings.saveAsync has a known flaky behavior where
@@ -32,6 +52,13 @@ export class OfficeRoamingSettingsStore implements SettingsStore {
     // via Office.context.roamingSettings.set() already happened and the value
     // will persist on the next successful save. Logging lets us spot chronic
     // saveAsync failures in DevTools.
+    const s = this.settings();
+    if (!s) {
+      // No roamingSettings available — silently resolve so the caller's flow
+      // continues. In-memory state is already lost in this case; persistence
+      // will resume on the next call that finds roamingSettings populated.
+      return Promise.resolve();
+    }
     const TIMEOUT_MS = 3000;
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -44,7 +71,7 @@ export class OfficeRoamingSettingsStore implements SettingsStore {
         );
         resolve();
       }, TIMEOUT_MS);
-      Office.context.roamingSettings.saveAsync((result) => {
+      s.saveAsync((result) => {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
