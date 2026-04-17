@@ -37,6 +37,7 @@ function fakeAdapter(): DocumentAdapter {
     setTableBorders: () => {},
     removeSectionBreaks: () => {},
     selectRange: () => {},
+    replaceRange: () => {},
     commit: async () => {},
   };
 }

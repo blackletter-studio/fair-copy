@@ -105,3 +105,71 @@ describe("FindingCard", () => {
     expect(screen.getByRole("button", { name: /dismiss/i })).toBeInTheDocument();
   });
 });
+
+const spellingFinding: Finding = {
+  id: "spell-1",
+  checkName: "spelling",
+  region: "document",
+  range: { id: "spell-0-4-7", kind: "run" },
+  excerpt: "The wittnes testified.",
+  severity: "info",
+  confidence: "medium",
+  message: "Unknown word. Suggestions: witness.",
+  suggestedText: "witness",
+  metadata: { word: "wittnes", offset: 4, suggestions: ["witness"], legalConfusion: null },
+};
+
+describe("FindingCard — spelling-specific behaviour", () => {
+  it("shows 'Add to dictionary' button for spelling findings when onAddToDictionary is provided", () => {
+    renderWithTheme(
+      <FindingCard
+        finding={spellingFinding}
+        onApply={() => {}}
+        onDismiss={() => {}}
+        onScrollTo={() => {}}
+        onAddToDictionary={() => {}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /add to dictionary/i })).toBeInTheDocument();
+  });
+
+  it("does NOT show 'Add to dictionary' button when onAddToDictionary is not provided", () => {
+    renderWithTheme(
+      <FindingCard
+        finding={spellingFinding}
+        onApply={() => {}}
+        onDismiss={() => {}}
+        onScrollTo={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /add to dictionary/i })).toBeNull();
+  });
+
+  it("does NOT show 'Add to dictionary' button for non-spelling findings even when handler provided", () => {
+    renderWithTheme(
+      <FindingCard
+        finding={finding}
+        onApply={() => {}}
+        onDismiss={() => {}}
+        onScrollTo={() => {}}
+        onAddToDictionary={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /add to dictionary/i })).toBeNull();
+  });
+
+  it("fires onAddToDictionary with the finding when button is clicked", () => {
+    const onAddToDictionary = vi.fn();
+    renderWithTheme(
+      <FindingCard
+        finding={spellingFinding}
+        onApply={() => {}}
+        onDismiss={() => {}}
+        onScrollTo={() => {}}
+        onAddToDictionary={onAddToDictionary}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /add to dictionary/i }));
+    expect(onAddToDictionary).toHaveBeenCalledWith(spellingFinding);
+  });
+});
