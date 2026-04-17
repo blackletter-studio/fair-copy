@@ -139,13 +139,22 @@ export function ProofmarkPanel({ getDocument }: ProofmarkPanelProps): React.JSX.
 
   const handleApply = useCallback(
     async (finding: Finding) => {
-      const doc = getDocument();
-      await applyFindingsInBatch(doc, ALL_CHECKS, [finding]);
-      setAppliedIds((prev) => {
-        const next = new Set(prev);
-        next.add(finding.id);
-        return next;
-      });
+      // eslint-disable-next-line no-console
+      console.log("Proofmark: handleApply fired for", finding.checkName, finding.range.id);
+      try {
+        const doc = getDocument();
+        await applyFindingsInBatch(doc, ALL_CHECKS, [finding]);
+        // eslint-disable-next-line no-console
+        console.log("Proofmark: applyFindingsInBatch resolved for", finding.id);
+        setAppliedIds((prev) => {
+          const next = new Set(prev);
+          next.add(finding.id);
+          return next;
+        });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("Proofmark: handleApply failed for", finding.id, err);
+      }
     },
     [getDocument],
   );

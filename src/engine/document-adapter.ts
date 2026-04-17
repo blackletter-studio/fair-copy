@@ -252,22 +252,45 @@ export class WordDocumentAdapter implements DocumentAdapter {
     const oldText = this.loadedParagraphs[paraIdx]?.text ?? "";
     if (oldText === text) return;
     const edits = minimalReplacements(oldText, text);
-    if (edits.length === 0) return;
     this.pendingMutations.push(async (ctx) => {
       // eslint-disable-next-line security/detect-object-injection -- paraIdx parsed from an id we formatted ourselves in load()
       const p = ctx.document.body.paragraphs.items[paraIdx];
-      if (!p) return;
-      // For each edit, use paragraph.search() to find the unique match and
-      // replace only that sub-range. This preserves per-run formatting on
-      // everything else in the paragraph.
-      for (const edit of edits) {
-        const results = p.search(edit.find, { matchCase: true, matchWildcards: false });
-        results.load("items");
-        await ctx.sync();
-        const first = results.items[0];
-        if (first) {
-          first.insertText(edit.replace, Word.InsertLocation.replace);
+      if (!p) {
+        // eslint-disable-next-line no-console
+        console.warn(`setParagraphText: paragraph ${paraIdx} not found in context`);
+        return;
+      }
+      // Try targeted search-and-replace for each minimal edit. This preserves
+      // per-run formatting on everything else in the paragraph. If search
+      // throws (e.g., special chars in the find string, Word for Mac quirks),
+      // fall back to whole-paragraph replace so Apply at least does something.
+      try {
+        // eslint-disable-next-line no-console
+        console.log(
+          `setParagraphText: applying ${edits.length} targeted edit(s) to para-${paraIdx}`,
+          edits.map((e) => ({ findLen: e.find.length, replaceLen: e.replace.length })),
+        );
+        for (const edit of edits) {
+          const results = p.search(edit.find, { matchCase: true });
+          results.load("items");
+          await ctx.sync();
+          const first = results.items[0];
+          if (first) {
+            first.insertText(edit.replace, Word.InsertLocation.replace);
+          } else {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `setParagraphText: search found no match for find-string (len=${edit.find.length}) in para-${paraIdx}; skipping`,
+            );
+          }
         }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error(
+          "setParagraphText: targeted search-and-replace failed; falling back to whole-paragraph replace. Formatting may flatten.",
+          err,
+        );
+        p.insertText(text, Word.InsertLocation.replace);
       }
     });
   }
