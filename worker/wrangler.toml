@@ -9,6 +9,24 @@ compatibility_flags = ["nodejs_compat"]
 pattern = "fair-copy.blackletter.studio"
 custom_domain = true
 
+# Per-IP rate limits at the Cloudflare edge. Enforced before the Worker
+# executes — if the limit is exceeded, `.limit()` returns { success: false }
+# and we reject with 429 without touching KV.
+#
+# namespace_id is an arbitrary 1-999999 integer chosen by us; it
+# distinguishes our limiters from any other Worker's in the account.
+[[unsafe.bindings]]
+name = "REDEEM_LIMIT"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
+
+[[unsafe.bindings]]
+name = "MINT_LIMIT"
+type = "ratelimit"
+namespace_id = "1002"
+simple = { limit = 30, period = 60 }
+
 # Populate these ids after running:
 #   wrangler kv namespace create LICENSE_CODES
 #   wrangler kv namespace create CONSUMED_LICENSES

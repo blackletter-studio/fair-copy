@@ -37,11 +37,77 @@ function withCors(res: Response): Response {
  * `ED25519_PRIVATE_KEY` — PKCS8 PEM for signing JWT tokens.
  * `MINT_API_KEY` — bearer token that authenticates the CLI to /api/mint.
  */
+/** Shape of a Cloudflare RateLimit binding. Not yet in @cloudflare/workers-types. */
+export interface RateLimit {
+  limit(opts: { key: string }): Promise<{ success: boolean }>;
+}
+
 export interface Env {
   LICENSE_CODES: KVNamespace;
   CONSUMED_LICENSES: KVNamespace;
   ED25519_PRIVATE_KEY: string;
   MINT_API_KEY: string;
+  REDEEM_LIMIT: RateLimit;
+  MINT_LIMIT: RateLimit;
+}
+
+function tooManyRequests(): Response {
+  return new Response(
+    JSON.stringify({
+      error: "Too many requests. Please wait a moment and try again.",
+    }),
+    { status: 429, headers: { "content-type": "application/json" } },
+  );
+}
+
+/**
+ * Two-layer rate limiting:
+ *
+ *   1. Cloudflare's native `RateLimit` binding, when present and wired.
+ *      Enforced at the edge before the Worker executes — zero KV reads.
+ *      Currently does not activate on wrangler 3.x free tier (the deploy
+ *      output shows "Unsafe Metadata: ratelimit" rather than a real
+ *      binding). The wiring is future-proofed for wrangler 4 / Workers
+ *      Paid where the binding becomes authoritative.
+ *
+ *   2. KV-backed fixed-window counter, authoritative today. One KV read
+ *      and one write per request. Race-prone by ~a few over-limit hits
+ *      per window, which is fine for "defeat a code-guessing botnet"
+ *      semantics. Keys are namespaced `rl:<bucket-name>:<ip>:<window>`
+ *      under the existing LICENSE_CODES namespace with a TTL of 2*period
+ *      so they survive clock skew + expire without accumulating.
+ *
+ * The binding is checked first so we get edge-cached rejection the
+ * moment it starts firing (when Matt upgrades wrangler / plan).
+ */
+async function enforceLimit(
+  request: Request,
+  limiter: RateLimit | undefined,
+  kv: KVNamespace,
+  bucketName: string,
+  limit: number,
+  periodSec: number,
+): Promise<Response | null> {
+  const ip = request.headers.get("cf-connecting-ip") ?? "anonymous";
+
+  // Layer 1 — native binding.
+  if (typeof limiter?.limit === "function") {
+    try {
+      const { success } = await limiter.limit({ key: ip });
+      if (!success) return tooManyRequests();
+    } catch {
+      // Binding present but mis-configured; fall through to KV layer.
+    }
+  }
+
+  // Layer 2 — KV fixed-window counter.
+  const windowId = Math.floor(Date.now() / 1000 / periodSec);
+  const key = `rl:${bucketName}:${ip}:${windowId}`;
+  const raw = await kv.get(key);
+  const current = raw ? Number.parseInt(raw, 10) : 0;
+  if (current >= limit) return tooManyRequests();
+  await kv.put(key, String(current + 1), { expirationTtl: periodSec * 2 });
+  return null;
 }
 
 export default {
@@ -57,12 +123,31 @@ export default {
       return withCors(health());
     }
     if (request.method === "POST" && url.pathname === "/api/redeem") {
+      const limited = await enforceLimit(
+        request,
+        env.REDEEM_LIMIT,
+        env.LICENSE_CODES,
+        "redeem",
+        10,
+        60,
+      );
+      if (limited) return withCors(limited);
       return withCors(await redeem(request, env));
     }
     if (request.method === "POST" && url.pathname === "/api/mint") {
       // Mint is only ever called from the Node CLI; CORS wrapping is
       // harmless but unnecessary. Wrap anyway so curl-from-browser-console
-      // works for ad-hoc testing.
+      // works for ad-hoc testing. Rate limit is a belt-and-suspenders
+      // guard in case MINT_API_KEY ever leaks.
+      const limited = await enforceLimit(
+        request,
+        env.MINT_LIMIT,
+        env.LICENSE_CODES,
+        "mint",
+        30,
+        60,
+      );
+      if (limited) return withCors(limited);
       return withCors(await mint(request, env));
     }
 
