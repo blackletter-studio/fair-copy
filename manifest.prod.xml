@@ -15,19 +15,25 @@
   start:word` development; don't edit the production manifest to match
   it or you'll break the public install flow.
 
-  Before AppSource submission, replace:
-    - the placeholder icon PNGs (solid color) with real branded art,
-    - the GUID (currently a zero-based placeholder) with a fresh one
-      generated via `uuidgen`,
-    - the Version with the actual release version,
-    - DisplayName "(dev)" → "Fair Copy" (no suffix).
+  Before AppSource submission:
+    - replace the placeholder FC-monogram icon PNGs with designer-produced
+      branded art,
+    - bump the Version from 0.1.0.0 to 1.0.0.0 for the v1 launch,
+    - add the AppSource test-code reviewer note (see
+      docs/launch/appsource/store-listing.md §8).
+
+  The GUID below (2528f8a0-2976-4776-83de-08df1e1d8c7a) was generated
+  via `uuidgen` on 2026-04-17 and is the permanent identity of this
+  add-in across its entire AppSource lifetime. Once a Word install uses
+  this GUID, changing it would require every existing install to
+  uninstall and re-install — DO NOT regenerate it.
 -->
 <OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
            xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
-  <Id>00000000-0000-0000-0000-000000000002</Id>
+  <Id>2528f8a0-2976-4776-83de-08df1e1d8c7a</Id>
   <Version>0.1.0.0</Version>
   <ProviderName>Black Letter Studio</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
