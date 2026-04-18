@@ -51,10 +51,18 @@ jobs:
         run: pnpm run build:prod
 
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          # Account ID is the same one shown in `wrangler whoami`. Not a
-          # secret; Cloudflare API tokens are the sensitive material.
-          accountId: 2bf8891cd112fb5750ce5c5f53b20c23
-          command: pages deploy dist --project-name=fair-copy-addin --branch=main
+        # Use pnpm exec directly rather than cloudflare/wrangler-action@v3.
+        # The action struggles with pnpm projects (see run 24614695390 —
+        # first tried `pnpm wrangler` → "Command wrangler not found", then
+        # fell back to a global wrangler and surfaced a token-scope error
+        # that was obscured by the double-failure). Running wrangler via
+        # pnpm exec is exactly what `pnpm run deploy` does locally, so we
+        # keep local and CI behavior identical.
+        run: pnpm exec wrangler pages deploy dist --project-name=fair-copy-addin --branch=main
+        env:
+          # Wrangler reads CLOUDFLARE_API_TOKEN directly — no arg needed.
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # Account ID is non-secret (same as `wrangler whoami` output).
+          # Passing it via env avoids account-ID ambiguity if the token
+          # has access to multiple accounts.
+          CLOUDFLARE_ACCOUNT_ID: 2bf8891cd112fb5750ce5c5f53b20c23
