@@ -18,7 +18,6 @@
   Before AppSource submission:
     - replace the placeholder FC-monogram icon PNGs with designer-produced
       branded art,
-    - bump the Version from 0.1.0.0 to 1.0.0.0 for the v1 launch,
     - add the AppSource test-code reviewer note (see
       docs/launch/appsource/store-listing.md §8).
 
@@ -27,6 +26,16 @@
   add-in across its entire AppSource lifetime. Once a Word install uses
   this GUID, changing it would require every existing install to
   uninstall and re-install — DO NOT regenerate it.
+
+  Version bumped 0.1.0.0 → 1.0.0.0 at AppSource submission time
+  (Microsoft's validator requires >= 1.0 for store acceptance).
+
+  Icon URL rules, per Microsoft's AppSource validator:
+    IconUrl = exactly 32×32 (not 80×80 as originally spec'd)
+    HighResolutionIconUrl = exactly 64×64 (not 128×128)
+  The other sizes (16, 80, 128, 300, 512) in public/assets/ are retained
+  for Word's ribbon scaling and Partner Center's separate listing
+  images, but they are NOT referenced by this manifest.
 -->
 <OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -34,13 +43,13 @@
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
   <Id>2528f8a0-2976-4776-83de-08df1e1d8c7a</Id>
-  <Version>0.1.0.0</Version>
+  <Version>1.0.0.0</Version>
   <ProviderName>Black Letter Studio</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Fair Copy" />
   <Description DefaultValue="Legal-document cleanup for Microsoft Word. Strip formatting noise, curl quotes, normalize citations, and more. Includes Proofmark — a free legal-aware proofreader." />
-  <IconUrl DefaultValue="https://fair-copy-addin.pages.dev/assets/icon-80.png" />
-  <HighResolutionIconUrl DefaultValue="https://fair-copy-addin.pages.dev/assets/icon-128.png" />
+  <IconUrl DefaultValue="https://fair-copy-addin.pages.dev/assets/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="https://fair-copy-addin.pages.dev/assets/icon-64.png" />
   <SupportUrl DefaultValue="https://blackletter.studio/support" />
   <AppDomains>
     <AppDomain>https://blackletter.studio</AppDomain>
