@@ -19,12 +19,17 @@
   ship a manifest pointing at localhost.
 
   Before AppSource submission:
-    - replace the FC-monogram icons with designer-produced branded art,
-    - bump the Version from 0.1.0.0 to 1.0.0.0 for the v1 launch.
+    - replace the FC-monogram icons with designer-produced branded art.
 
   The GUID below matches ../manifest.prod.xml and was assigned via
   `uuidgen` on 2026-04-17. DO NOT regenerate — it's the permanent
   identity of this add-in.
+
+  Version bumped 0.1.0.0 → 1.0.0.0 at AppSource submission time
+  (Microsoft requires >= 1.0).
+
+  IconUrl / HighResolutionIconUrl point at 32×32 and 64×64 per
+  Microsoft's AppSource validator — not 80 / 128 as originally spec'd.
 -->
 <OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -32,13 +37,13 @@
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
   <Id>2528f8a0-2976-4776-83de-08df1e1d8c7a</Id>
-  <Version>0.1.0.0</Version>
+  <Version>1.0.0.0</Version>
   <ProviderName>Black Letter Studio</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Fair Copy" />
   <Description DefaultValue="Legal-document cleanup for Microsoft Word. Strip formatting noise, curl quotes, normalize citations, and more. Includes Proofmark — a free legal-aware proofreader." />
-  <IconUrl DefaultValue="https://fair-copy-addin.pages.dev/assets/icon-80.png" />
-  <HighResolutionIconUrl DefaultValue="https://fair-copy-addin.pages.dev/assets/icon-128.png" />
+  <IconUrl DefaultValue="https://fair-copy-addin.pages.dev/assets/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="https://fair-copy-addin.pages.dev/assets/icon-64.png" />
   <SupportUrl DefaultValue="https://blackletter.studio/support" />
   <AppDomains>
     <AppDomain>https://blackletter.studio</AppDomain>
