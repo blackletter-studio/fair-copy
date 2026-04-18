@@ -1,0 +1,60 @@
+name: Deploy to Cloudflare Pages
+
+# Runs `pnpm run build:prod` and `wrangler pages deploy` on every push to
+# `main`. Replaces the previous manual-only deploy flow where `pnpm run
+# deploy` had to be executed from a developer's laptop after every merged
+# PR. Before this workflow existed, a merge-then-forget-to-deploy cycle
+# let Cloudflare Pages serve an 8-hour-old manifest (Version 0.1.0.0 +
+# icon-80/128) even though the repo's HEAD was at the fixed version.
+#
+# The `workflow_dispatch` trigger lets you re-run the deploy manually
+# from the Actions tab if something fails mid-pipeline (e.g. a transient
+# Cloudflare 5xx during upload).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and deploy fair-copy-addin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm/action-setup reads the `packageManager` field from
+      # package.json when `version:` is omitted. That matches our
+      # committed pinning (pnpm@10.33.0) exactly, so there's no
+      # ERR_PNPM_BAD_PM_VERSION conflict that would occur if we pinned
+      # a slightly different version here.
+      - name: Install pnpm (version from package.json packageManager)
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node 22 (required by Astro 6 + current Vite)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build production bundle
+        # Runs `tsc -b && vite build && cp manifest.prod.xml dist/manifest.xml`.
+        # `dist/` is what wrangler uploads — the manifest must end up there
+        # alongside the built task-pane assets.
+        run: pnpm run build:prod
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # Account ID is the same one shown in `wrangler whoami`. Not a
+          # secret; Cloudflare API tokens are the sensitive material.
+          accountId: 2bf8891cd112fb5750ce5c5f53b20c23
+          command: pages deploy dist --project-name=fair-copy-addin --branch=main
