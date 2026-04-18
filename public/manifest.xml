@@ -18,18 +18,20 @@
   local `pnpm start:word` development; don't copy that one here or you'll
   ship a manifest pointing at localhost.
 
-  Before AppSource submission, replace:
-    - the placeholder icon PNGs (FC-monogram burgundy) with real branded art,
-    - the GUID (currently a zero-based placeholder) with a fresh one
-      generated via `uuidgen`,
-    - the Version with the actual release version.
+  Before AppSource submission:
+    - replace the FC-monogram icons with designer-produced branded art,
+    - bump the Version from 0.1.0.0 to 1.0.0.0 for the v1 launch.
+
+  The GUID below matches ../manifest.prod.xml and was assigned via
+  `uuidgen` on 2026-04-17. DO NOT regenerate — it's the permanent
+  identity of this add-in.
 -->
 <OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
            xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
-  <Id>00000000-0000-0000-0000-000000000002</Id>
+  <Id>2528f8a0-2976-4776-83de-08df1e1d8c7a</Id>
   <Version>0.1.0.0</Version>
   <ProviderName>Black Letter Studio</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
